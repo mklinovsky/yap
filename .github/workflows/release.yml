@@ -32,5 +32,5 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: yap ${{ github.ref_name }}
-          releaseDraft: false
+          releaseDraft: true
           args: --target universal-apple-darwin
