@@ -123,10 +123,13 @@ async fn toggle_recording(state: State<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn pause_shortcut(app: AppHandle) -> Result<(), String> {
+async fn pause_shortcut(app: AppHandle, state: State<'_>) -> Result<(), String> {
     app.global_shortcut()
         .unregister_all()
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // An unregistered shortcut never reports its release, which would leave a Hold recording running.
+    let _ = state.inputs.send(Input::Shortcut(ShortcutEvent::Released));
+    Ok(())
 }
 
 #[tauri::command]
