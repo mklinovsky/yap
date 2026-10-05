@@ -8,13 +8,14 @@ pub mod tray;
 
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use dictation::{Deps, Dictation, Feedback, ShortcutEvent, Snapshot, Spawner, Status};
+use dictation::{Deps, Dictation, Feedback, ShortcutEvent, Snapshot, Spawner, Status, Timer};
 use paster::ClipboardPaster;
 use recorder::CpalRecorder;
 use store::{HistoryEntry, Settings, Store};
@@ -33,6 +34,21 @@ enum Input {
     Shortcut(ShortcutEvent),
     Toggle,
     Retry,
+    Run(Box<dyn FnOnce() + Send>),
+}
+
+struct WorkerTimer {
+    inputs: mpsc::Sender<Input>,
+}
+
+impl Timer for WorkerTimer {
+    fn after(&self, delay: Duration, job: Box<dyn FnOnce() + Send>) {
+        let inputs = self.inputs.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(delay);
+            let _ = inputs.send(Input::Run(job));
+        });
+    }
 }
 
 impl dictation::Secrets for Store {
@@ -269,6 +285,8 @@ pub fn run() {
                 retry_item,
             });
             let paster = Arc::new(ClipboardPaster::new(app.handle().clone()));
+            // One worker keeps press/release ordered and keeps recorder and database work off the main thread.
+            let (inputs, received) = mpsc::channel();
             let dictation = Dictation::new(Deps {
                 store: store.clone(),
                 recorder: Arc::new(CpalRecorder::default()),
@@ -277,10 +295,10 @@ pub fn run() {
                 feedback: feedback.clone(),
                 secrets: store.clone(),
                 spawner: Arc::new(ThreadSpawner),
+                timer: Arc::new(WorkerTimer {
+                    inputs: inputs.clone(),
+                }),
             });
-
-            // One worker keeps press/release ordered and keeps recorder and database work off the main thread.
-            let (inputs, received) = mpsc::channel();
             let worker = dictation.clone();
             std::thread::spawn(move || {
                 for input in received {
@@ -288,6 +306,7 @@ pub fn run() {
                         Input::Shortcut(event) => worker.handle(event),
                         Input::Toggle => worker.toggle(),
                         Input::Retry => worker.retry(),
+                        Input::Run(job) => job(),
                     }
                 }
             });

@@ -24,6 +24,13 @@ pub struct Settings {
     pub shortcut: String,
     pub mode: Mode,
     pub sounds: bool,
+    /// A recording is stopped and transcribed once it reaches this length.
+    #[serde(default = "default_max_minutes")]
+    pub max_minutes: u32,
+}
+
+fn default_max_minutes() -> u32 {
+    20
 }
 
 impl Default for Settings {
@@ -37,6 +44,7 @@ impl Default for Settings {
             shortcut: "Ctrl+Alt+Shift+Space".into(),
             mode: Mode::Hold,
             sounds: true,
+            max_minutes: default_max_minutes(),
         }
     }
 }

@@ -15,6 +15,7 @@ fn fresh_store_returns_default_settings() {
             shortcut: "Ctrl+Alt+Shift+Space".into(),
             mode: Mode::Hold,
             sounds: true,
+            max_minutes: 20,
         }
     );
 }
@@ -32,6 +33,7 @@ fn saved_settings_survive_reopening_the_database() {
         shortcut: "Ctrl+Shift+D".into(),
         mode: Mode::Toggle,
         sounds: false,
+        max_minutes: 45,
     };
 
     Store::open(&path)
@@ -72,7 +74,7 @@ fn deleted_history_entry_is_no_longer_listed() {
 }
 
 #[test]
-fn settings_saved_before_keywords_existed_still_load() {
+fn settings_saved_by_older_versions_get_defaults_for_new_fields() {
     let path = std::env::temp_dir().join(format!("yap-legacy-{}.db", std::process::id()));
     let _ = std::fs::remove_file(&path);
     drop(Store::open(&path).unwrap());
@@ -88,8 +90,12 @@ fn settings_saved_before_keywords_existed_still_load() {
     std::fs::remove_file(&path).unwrap();
 
     assert_eq!(
-        (settings.model.as_str(), settings.keywords),
-        ("whisper-large-v3", vec![])
+        (
+            settings.model.as_str(),
+            settings.keywords,
+            settings.max_minutes
+        ),
+        ("whisper-large-v3", vec![], 20)
     );
 }
 

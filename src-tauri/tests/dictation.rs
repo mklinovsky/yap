@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use yap_lib::dictation::{
     Cue, Deps, Dictation, Feedback, Paster, Recorder, Recording, Secrets, ShortcutEvent::*,
-    Snapshot, Spawner, Status,
+    Snapshot, Spawner, Status, Timer,
 };
 use yap_lib::store::{Mode, Settings, Store};
 use yap_lib::transcriber::{TranscribeError, TranscribeRequest, Transcriber, Transcription};
@@ -99,6 +100,19 @@ impl Spawner for QueuedSpawner {
     }
 }
 
+type Job = Box<dyn FnOnce() + Send>;
+
+#[derive(Default)]
+struct QueuedTimer {
+    jobs: Mutex<Vec<(Duration, Job)>>,
+}
+
+impl Timer for QueuedTimer {
+    fn after(&self, delay: Duration, job: Job) {
+        self.jobs.lock().unwrap().push((delay, job));
+    }
+}
+
 struct Harness {
     dictation: Dictation,
     store: Arc<Store>,
@@ -107,6 +121,7 @@ struct Harness {
     paster: Arc<FakePaster>,
     feedback: Arc<FakeFeedback>,
     spawner: Arc<QueuedSpawner>,
+    timer: Arc<QueuedTimer>,
 }
 
 impl Harness {
@@ -124,6 +139,7 @@ impl Harness {
         let paster = Arc::new(FakePaster::default());
         let feedback = Arc::new(FakeFeedback::default());
         let spawner = Arc::new(QueuedSpawner::default());
+        let timer = Arc::new(QueuedTimer::default());
         let dictation = Dictation::new(Deps {
             store: store.clone(),
             recorder: recorder.clone(),
@@ -132,6 +148,7 @@ impl Harness {
             feedback: feedback.clone(),
             secrets: Arc::new(FakeSecrets(api_key.map(String::from))),
             spawner: spawner.clone(),
+            timer: timer.clone(),
         });
         Self {
             dictation,
@@ -141,6 +158,7 @@ impl Harness {
             paster,
             feedback,
             spawner,
+            timer,
         }
     }
 
@@ -153,6 +171,21 @@ impl Harness {
         for job in jobs {
             job();
         }
+    }
+
+    fn timer_delays(&self) -> Vec<Duration> {
+        self.timer
+            .jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(d, _)| *d)
+            .collect()
+    }
+
+    fn fire_timer(&self, index: usize) {
+        let (_, job) = self.timer.jobs.lock().unwrap().remove(index);
+        job();
     }
 
     fn pasted(&self) -> Vec<String> {
@@ -593,4 +626,40 @@ fn snapshot_serializes_status_with_retry_flag() {
             "canRetry": true
         })
     );
+}
+
+fn max_minutes(minutes: u32) -> Harness {
+    Harness::new(
+        Settings {
+            max_minutes: minutes,
+            ..Settings::default()
+        },
+        Some("sk-test"),
+    )
+}
+
+#[test]
+fn recording_is_stopped_and_transcribed_at_the_max_length() {
+    let h = max_minutes(5);
+
+    h.dictation.handle(Pressed);
+    assert_eq!(h.timer_delays(), [Duration::from_secs(300)]);
+
+    h.fire_timer(0);
+    assert_eq!(h.dictation.status(), Status::Transcribing);
+    h.run_background_jobs();
+    assert_eq!(h.pasted(), ["hello world"]);
+}
+
+#[test]
+fn max_length_of_an_earlier_recording_does_not_stop_a_later_one() {
+    let h = max_minutes(5);
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+
+    h.dictation.handle(Pressed);
+    h.fire_timer(0);
+
+    assert_eq!(h.dictation.status(), Status::Recording);
 }
