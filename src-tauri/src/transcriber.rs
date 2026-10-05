@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::blocking::multipart::{Form, Part};
 use serde::Deserialize;
 
@@ -38,7 +40,12 @@ pub struct HttpTranscriber {
 impl HttpTranscriber {
     pub fn new() -> Self {
         Self {
-            client: reqwest::blocking::Client::new(),
+            // reqwest's 30 s default cuts off uploading and transcribing long recordings.
+            client: reqwest::blocking::Client::builder()
+                .connect_timeout(Duration::from_secs(15))
+                .timeout(Duration::from_secs(15 * 60))
+                .build()
+                .expect("HTTP client with timeouts"),
         }
     }
 }
