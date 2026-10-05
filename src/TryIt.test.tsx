@@ -11,7 +11,7 @@ function mockBackend() {
   mockIPC(
     (cmd) => {
       calls.push(cmd);
-      return cmd === "get_status" ? { state: "idle" } : null;
+      return cmd === "get_status" ? { state: "idle", canRetry: false } : null;
     },
     { shouldMockEvents: true },
   );
@@ -43,4 +43,18 @@ test("follows the live dictation status", async () => {
   await emit(STATUS_CHANGED, { state: "error", message: "HTTP 401: Incorrect API key provided" });
   expect(await screen.findByText("HTTP 401: Incorrect API key provided")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Start recording" })).toBeEnabled();
+});
+
+test("offers to retry a failed transcription and pastes the result into the scratch pad", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<TryIt />);
+  await screen.findByRole("button", { name: "Start recording" });
+  expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+
+  await emit(STATUS_CHANGED, { state: "error", message: "network error: timed out", canRetry: true });
+  await user.click(await screen.findByRole("button", { name: "Retry" }));
+
+  expect(calls).toContain("retry_recording");
+  expect(screen.getByLabelText("Scratch pad")).toHaveFocus();
 });

@@ -30,11 +30,15 @@ export interface HistoryEntry {
   size: number | null;
 }
 
-export type Status =
+export type Status = (
   | { state: "idle" }
   | { state: "recording" }
   | { state: "transcribing" }
-  | { state: "error"; message: string };
+  | { state: "error"; message: string }
+) & {
+  /** The last failed transcription's audio is kept and can be sent again. */
+  canRetry: boolean;
+};
 
 export const HISTORY_CHANGED = "history-changed";
 export const STATUS_CHANGED = "status-changed";
@@ -50,6 +54,7 @@ export const api = {
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   getStatus: () => invoke<Status>("get_status"),
   toggleRecording: () => invoke<void>("toggle_recording"),
+  retryRecording: () => invoke<void>("retry_recording"),
   pauseShortcut: () => invoke<void>("pause_shortcut"),
   resumeShortcut: () => invoke<void>("resume_shortcut"),
 };

@@ -629,6 +629,7 @@ textarea::placeholder {
 .try-controls {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .record {
@@ -643,6 +644,10 @@ textarea::placeholder {
   background: var(--field);
   font-weight: 500;
   white-space: nowrap;
+}
+
+.record.retry {
+  padding: 0 16px;
 }
 
 .record:hover:not(:disabled) {
