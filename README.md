@@ -26,7 +26,7 @@ Settings opens on first launch:
 | API key | — (required) |
 | Model | `gpt-transcribe` |
 | Languages | auto-detect |
-| Shortcut | `⌥Space` |
+| Shortcut | `⌃⌥⇧Space` |
 | Mode | Hold |
 
 Data, including the API key in plain text, is stored in `~/Library/Application Support/com.mklinovsky.yap/yap.db`.

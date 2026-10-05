@@ -12,7 +12,7 @@ fn fresh_store_returns_default_settings() {
             languages: vec![],
             keywords: vec![],
             input_device: None,
-            shortcut: "Alt+Space".into(),
+            shortcut: "Ctrl+Alt+Shift+Space".into(),
             mode: Mode::Hold,
             sounds: true,
         }

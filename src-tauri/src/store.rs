@@ -34,7 +34,7 @@ impl Default for Settings {
             languages: Vec::new(),
             keywords: Vec::new(),
             input_device: None,
-            shortcut: "Alt+Space".into(),
+            shortcut: "Ctrl+Alt+Shift+Space".into(),
             mode: Mode::Hold,
             sounds: true,
         }
