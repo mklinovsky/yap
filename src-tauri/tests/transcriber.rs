@@ -230,3 +230,21 @@ fn single_language_models_receive_only_the_first_language() {
         (1, true)
     );
 }
+
+#[test]
+fn requests_plain_json_response_format() {
+    let mut server = mockito::Server::new();
+    let body = capture_body(&mut server);
+
+    HttpTranscriber::new()
+        .transcribe(TranscribeRequest {
+            model: "gpt-transcribe".into(),
+            ..request(server.url())
+        })
+        .unwrap();
+
+    assert!(body
+        .lock()
+        .unwrap()
+        .contains("name=\"response_format\"\r\n\r\njson\r\n"));
+}

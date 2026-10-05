@@ -65,6 +65,9 @@ impl Transcriber for HttpTranscriber {
             .map_err(network)?;
         let mut form = Form::new()
             .text("model", request.model.clone())
+            // LiteLLM treats every OpenAI model without "gpt-4o" in its name as Whisper and fills in
+            // verbose_json when this is missing; gpt-transcribe rejects verbose_json.
+            .text("response_format", "json")
             .part("file", file);
         let gpt_transcribe = request.model.starts_with("gpt-transcribe");
         if gpt_transcribe {
