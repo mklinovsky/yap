@@ -22,6 +22,8 @@ export interface HistoryEntry {
   id: number;
   text: string;
   createdAt: number;
+  /** USD, when the endpoint reported it. */
+  cost: number | null;
 }
 
 export type Status =

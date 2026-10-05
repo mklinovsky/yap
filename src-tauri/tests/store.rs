@@ -48,8 +48,8 @@ fn saved_settings_survive_reopening_the_database() {
 fn history_lists_transcripts_newest_first() {
     let store = Store::open_in_memory().unwrap();
 
-    store.add_history("first").unwrap();
-    store.add_history("second").unwrap();
+    store.add_history("first", None).unwrap();
+    store.add_history("second", None).unwrap();
 
     let texts: Vec<String> = store
         .history()
@@ -63,8 +63,8 @@ fn history_lists_transcripts_newest_first() {
 #[test]
 fn deleted_history_entry_is_no_longer_listed() {
     let store = Store::open_in_memory().unwrap();
-    let keep = store.add_history("keep").unwrap();
-    let drop = store.add_history("drop").unwrap();
+    let keep = store.add_history("keep", None).unwrap();
+    let drop = store.add_history("drop", None).unwrap();
 
     store.delete_history(drop.id).unwrap();
 
@@ -151,4 +151,50 @@ fn api_key_preview_shows_only_the_first_characters() {
         (long.as_deref(), short.as_deref()),
         (Some("sk-p••••••••"), Some("ab••••••••"))
     );
+}
+
+#[test]
+fn history_entry_keeps_its_cost() {
+    let store = Store::open_in_memory().unwrap();
+
+    store.add_history("priced", Some(0.0042)).unwrap();
+    store.add_history("unpriced", None).unwrap();
+
+    let costs: Vec<Option<f64>> = store
+        .history()
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.cost)
+        .collect();
+    assert_eq!(costs, [None, Some(0.0042)]);
+}
+
+#[test]
+fn history_created_before_costs_existed_gains_a_cost_column() {
+    let path = std::env::temp_dir().join(format!("yap-cost-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE history (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 text TEXT NOT NULL,
+                 created_at INTEGER NOT NULL
+             );
+             INSERT INTO history (text, created_at) VALUES ('old', 1);",
+        )
+        .unwrap();
+
+    let store = Store::open(&path).unwrap();
+    store.add_history("new", Some(0.5)).unwrap();
+    let entries: Vec<(String, Option<f64>)> = store
+        .history()
+        .unwrap()
+        .into_iter()
+        .map(|entry| (entry.text, entry.cost))
+        .collect();
+    drop(store);
+    std::fs::remove_file(&path).unwrap();
+
+    assert_eq!(entries, [("new".into(), Some(0.5)), ("old".into(), None)]);
 }

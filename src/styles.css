@@ -522,9 +522,28 @@ textarea::placeholder {
   margin-bottom: 4px;
 }
 
-.card time {
+.history-total {
+  max-width: 720px;
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.card time,
+.card-cost {
   font-size: 11px;
   color: var(--muted);
+}
+
+.card-cost {
+  font-variant-numeric: tabular-nums;
 }
 
 .card-actions {

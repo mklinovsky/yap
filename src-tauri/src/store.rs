@@ -41,12 +41,14 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub id: i64,
     pub text: String,
     pub created_at: i64,
+    /// USD, when the endpoint reported it.
+    pub cost: Option<f64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -69,7 +71,8 @@ CREATE TABLE IF NOT EXISTS secrets (
 CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     text TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    cost REAL
 );
 ";
 
@@ -88,6 +91,7 @@ impl Store {
 
     fn init(conn: Connection) -> Result<Self, StoreError> {
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -121,19 +125,20 @@ impl Store {
         Ok(())
     }
 
-    pub fn add_history(&self, text: &str) -> Result<HistoryEntry, StoreError> {
+    pub fn add_history(&self, text: &str, cost: Option<f64>) -> Result<HistoryEntry, StoreError> {
         Ok(self.conn().query_row(
-            "INSERT INTO history (text, created_at)
-             VALUES (?1, CAST(unixepoch('subsec') * 1000 AS INTEGER))
-             RETURNING id, text, created_at",
-            [text],
+            "INSERT INTO history (text, created_at, cost)
+             VALUES (?1, CAST(unixepoch('subsec') * 1000 AS INTEGER), ?2)
+             RETURNING id, text, created_at, cost",
+            rusqlite::params![text, cost],
             history_entry,
         )?)
     }
 
     pub fn history(&self) -> Result<Vec<HistoryEntry>, StoreError> {
         let conn = self.conn();
-        let mut stmt = conn.prepare("SELECT id, text, created_at FROM history ORDER BY id DESC")?;
+        let mut stmt =
+            conn.prepare("SELECT id, text, created_at, cost FROM history ORDER BY id DESC")?;
         let entries = stmt
             .query_map([], history_entry)?
             .collect::<Result<_, _>>()?;
@@ -180,6 +185,18 @@ impl Store {
     }
 }
 
+fn migrate(conn: &Connection) -> Result<(), StoreError> {
+    let has_cost: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('history') WHERE name = 'cost')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_cost {
+        conn.execute("ALTER TABLE history ADD COLUMN cost REAL", [])?;
+    }
+    Ok(())
+}
+
 // Older versions stored a single optional `language` before the list of languages existed.
 fn upgrade(mut json: serde_json::Value) -> serde_json::Value {
     if let Some(object) = json.as_object_mut() {
@@ -199,5 +216,6 @@ fn history_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
         id: row.get(0)?,
         text: row.get(1)?,
         created_at: row.get(2)?,
+        cost: row.get(3)?,
     })
 }

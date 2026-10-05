@@ -20,8 +20,15 @@ pub enum TranscribeError {
     Network(String),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transcription {
+    pub text: String,
+    /// USD, when the endpoint reports it.
+    pub cost: Option<f64>,
+}
+
 pub trait Transcriber: Send + Sync {
-    fn transcribe(&self, request: TranscribeRequest) -> Result<String, TranscribeError>;
+    fn transcribe(&self, request: TranscribeRequest) -> Result<Transcription, TranscribeError>;
 }
 
 pub struct HttpTranscriber {
@@ -43,7 +50,7 @@ impl Default for HttpTranscriber {
 }
 
 #[derive(Deserialize)]
-struct Transcription {
+struct Body {
     text: String,
 }
 
@@ -58,7 +65,7 @@ struct ErrorDetail {
 }
 
 impl Transcriber for HttpTranscriber {
-    fn transcribe(&self, request: TranscribeRequest) -> Result<String, TranscribeError> {
+    fn transcribe(&self, request: TranscribeRequest) -> Result<Transcription, TranscribeError> {
         let file = Part::bytes(request.wav)
             .file_name("audio.wav")
             .mime_str("audio/wav")
@@ -103,9 +110,17 @@ impl Transcriber for HttpTranscriber {
                 message,
             });
         }
+        let cost = response
+            .headers()
+            .get("x-litellm-response-cost")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse().ok());
         let body = response.text().map_err(network)?;
-        serde_json::from_str::<Transcription>(&body)
-            .map(|transcription| transcription.text)
+        serde_json::from_str::<Body>(&body)
+            .map(|body| Transcription {
+                text: body.text,
+                cost,
+            })
             .map_err(|error| TranscribeError::InvalidResponse(error.to_string()))
     }
 }

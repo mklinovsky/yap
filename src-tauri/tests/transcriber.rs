@@ -28,12 +28,12 @@ fn returns_text_transcribed_by_the_endpoint() {
         .with_body(r#"{"text":"hello world"}"#)
         .create();
 
-    let text = HttpTranscriber::new()
+    let transcription = HttpTranscriber::new()
         .transcribe(request(server.url()))
         .unwrap();
 
     mock.assert();
-    assert_eq!(text, "hello world");
+    assert_eq!(transcription.text, "hello world");
 }
 
 #[test]
@@ -247,4 +247,52 @@ fn requests_plain_json_response_format() {
         .lock()
         .unwrap()
         .contains("name=\"response_format\"\r\n\r\njson\r\n"));
+}
+
+#[test]
+fn reports_cost_from_litellm_header() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("POST", "/audio/transcriptions")
+        .with_header("x-litellm-response-cost", "0.00123")
+        .with_body(r#"{"text":"hello"}"#)
+        .create();
+
+    let transcription = HttpTranscriber::new()
+        .transcribe(request(server.url()))
+        .unwrap();
+
+    assert_eq!(transcription.cost, Some(0.00123));
+}
+
+#[test]
+fn cost_is_unknown_without_litellm_header() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("POST", "/audio/transcriptions")
+        .with_body(r#"{"text":"hello"}"#)
+        .create();
+
+    let transcription = HttpTranscriber::new()
+        .transcribe(request(server.url()))
+        .unwrap();
+
+    assert_eq!(transcription.cost, None);
+}
+
+#[test]
+fn unparsable_cost_header_is_ignored() {
+    let mut server = mockito::Server::new();
+    server
+        .mock("POST", "/audio/transcriptions")
+        .with_header("x-litellm-response-cost", "n/a")
+        .with_body(r#"{"text":"hello"}"#)
+        .create();
+
+    let transcription = HttpTranscriber::new()
+        .transcribe(request(server.url()))
+        .unwrap();
+
+    assert_eq!(transcription.text, "hello");
+    assert_eq!(transcription.cost, None);
 }

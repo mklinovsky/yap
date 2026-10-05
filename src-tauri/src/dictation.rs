@@ -177,10 +177,17 @@ impl Dictation {
             ),
         };
         match self.deps.transcriber.transcribe(request) {
-            Ok(text) if text.trim().is_empty() => self.set_status(Status::Idle),
-            Ok(text) => {
-                let text = text.trim();
-                if self.deps.store.add_history(text).is_ok() {
+            Ok(transcription) if transcription.text.trim().is_empty() => {
+                self.set_status(Status::Idle)
+            }
+            Ok(transcription) => {
+                let text = transcription.text.trim();
+                if self
+                    .deps
+                    .store
+                    .add_history(text, transcription.cost)
+                    .is_ok()
+                {
                     self.deps.feedback.history_changed();
                 }
                 match self.deps.paster.paste(text) {

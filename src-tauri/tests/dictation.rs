@@ -5,7 +5,7 @@ use yap_lib::dictation::{
     Spawner, Status,
 };
 use yap_lib::store::{Mode, Settings, Store};
-use yap_lib::transcriber::{TranscribeError, TranscribeRequest, Transcriber};
+use yap_lib::transcriber::{TranscribeError, TranscribeRequest, Transcriber, Transcription};
 
 struct FakeRecorder {
     next: Mutex<Recording>,
@@ -31,12 +31,12 @@ struct SentRequest {
 }
 
 struct FakeTranscriber {
-    reply: Mutex<Result<String, TranscribeError>>,
+    reply: Mutex<Result<Transcription, TranscribeError>>,
     sent: Mutex<Vec<SentRequest>>,
 }
 
 impl Transcriber for FakeTranscriber {
-    fn transcribe(&self, request: TranscribeRequest) -> Result<String, TranscribeError> {
+    fn transcribe(&self, request: TranscribeRequest) -> Result<Transcription, TranscribeError> {
         self.sent.lock().unwrap().push(SentRequest {
             base_url: request.base_url,
             api_key: request.api_key,
@@ -116,7 +116,7 @@ impl Harness {
             opened: Mutex::default(),
         });
         let transcriber = Arc::new(FakeTranscriber {
-            reply: Mutex::new(Ok("hello world".into())),
+            reply: Mutex::new(Ok(transcript("hello world"))),
             sent: Mutex::default(),
         });
         let paster = Arc::new(FakePaster::default());
@@ -158,6 +158,13 @@ impl Harness {
     }
 }
 
+fn transcript(text: &str) -> Transcription {
+    Transcription {
+        text: text.into(),
+        cost: None,
+    }
+}
+
 fn speech() -> Recording {
     Recording {
         samples: vec![0.3; 16_000],
@@ -193,6 +200,28 @@ fn transcript_is_saved_to_history() {
         .map(|e| e.text)
         .collect();
     assert_eq!(texts, ["hello world"]);
+}
+
+#[test]
+fn transcription_cost_is_saved_with_the_history_entry() {
+    let h = Harness::hold();
+    *h.transcriber.reply.lock().unwrap() = Ok(Transcription {
+        text: "hello world".into(),
+        cost: Some(0.0021),
+    });
+
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+
+    let costs: Vec<Option<f64>> = h
+        .store
+        .history()
+        .unwrap()
+        .into_iter()
+        .map(|e| e.cost)
+        .collect();
+    assert_eq!(costs, [Some(0.0021)]);
 }
 
 #[test]
@@ -297,7 +326,7 @@ fn pressing_without_api_key_reports_error_instead_of_recording() {
 #[test]
 fn surrounding_whitespace_is_trimmed_before_pasting() {
     let h = Harness::hold();
-    *h.transcriber.reply.lock().unwrap() = Ok(" hello world\n".into());
+    *h.transcriber.reply.lock().unwrap() = Ok(transcript(" hello world\n"));
 
     h.dictation.handle(Pressed);
     h.dictation.handle(Released);
@@ -309,7 +338,7 @@ fn surrounding_whitespace_is_trimmed_before_pasting() {
 #[test]
 fn blank_transcript_pastes_nothing_and_skips_history() {
     let h = Harness::hold();
-    *h.transcriber.reply.lock().unwrap() = Ok(" \n".into());
+    *h.transcriber.reply.lock().unwrap() = Ok(transcript(" \n"));
 
     h.dictation.handle(Pressed);
     h.dictation.handle(Released);

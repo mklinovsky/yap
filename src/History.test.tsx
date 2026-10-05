@@ -28,8 +28,8 @@ function mockBackend(entries: HistoryEntry[]) {
 }
 
 const entries: HistoryEntry[] = [
-  { id: 2, text: "Second thought", createdAt: Date.UTC(2026, 9, 5, 12, 30) },
-  { id: 1, text: "First thought", createdAt: Date.UTC(2026, 9, 5, 12, 0) },
+  { id: 2, text: "Second thought", createdAt: Date.UTC(2026, 9, 5, 12, 30), cost: 0.0012 },
+  { id: 1, text: "First thought", createdAt: Date.UTC(2026, 9, 5, 12, 0), cost: null },
 ];
 
 test("lists transcripts in the order the backend returns them", async () => {
@@ -72,7 +72,7 @@ test("shows a new transcript when the backend announces a history change", async
   render(<History />);
   await screen.findByText("Second thought");
 
-  backend.rows = [{ id: 3, text: "Fresh dictation", createdAt: Date.UTC(2026, 9, 5, 13, 0) }, ...entries];
+  backend.rows = [{ id: 3, text: "Fresh dictation", createdAt: Date.UTC(2026, 9, 5, 13, 0), cost: null }, ...entries];
   await emit(HISTORY_CHANGED);
 
   expect(await screen.findByText("Fresh dictation")).toBeInTheDocument();
@@ -84,4 +84,34 @@ test("explains that nothing has been dictated yet when history is empty", async 
   render(<History />);
 
   expect(await screen.findByText("No transcripts yet.")).toBeInTheDocument();
+});
+
+test("shows what each transcript cost when the endpoint reported it", async () => {
+  mockBackend(entries);
+
+  render(<History />);
+
+  const [priced, unpriced] = await screen.findAllByRole("listitem");
+  expect(within(priced).getByText("$0.0012")).toBeInTheDocument();
+  expect(within(unpriced).queryByText(/\$/)).toBeNull();
+});
+
+test("totals the cost of the listed transcripts", async () => {
+  mockBackend([
+    ...entries,
+    { id: 0, text: "Earlier thought", createdAt: Date.UTC(2026, 9, 5, 11, 0), cost: 0.003 },
+  ]);
+
+  render(<History />);
+
+  expect(await screen.findByText("Total $0.0042")).toBeInTheDocument();
+});
+
+test("shows no total when no transcript has a cost", async () => {
+  mockBackend(entries.map((entry) => ({ ...entry, cost: null })));
+
+  render(<History />);
+
+  await screen.findByText("Second thought");
+  expect(screen.queryByText(/Total/)).toBeNull();
 });
