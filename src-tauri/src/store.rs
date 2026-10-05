@@ -1,0 +1,203 @@
+use std::sync::Mutex;
+
+use rusqlite::{Connection, OptionalExtension};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Hold,
+    Toggle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    pub base_url: String,
+    pub model: String,
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub input_device: Option<String>,
+    pub shortcut: String,
+    pub mode: Mode,
+    pub sounds: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            base_url: "https://api.openai.com/v1".into(),
+            model: "gpt-transcribe".into(),
+            languages: Vec::new(),
+            keywords: Vec::new(),
+            input_device: None,
+            shortcut: "Alt+Space".into(),
+            mode: Mode::Hold,
+            sounds: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub text: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError {
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
+const SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS settings (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS secrets (
+    name TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+";
+
+pub struct Store {
+    conn: Mutex<Connection>,
+}
+
+impl Store {
+    pub fn open(path: &std::path::Path) -> Result<Self, StoreError> {
+        Self::init(Connection::open(path)?)
+    }
+
+    pub fn open_in_memory() -> Result<Self, StoreError> {
+        Self::init(Connection::open_in_memory()?)
+    }
+
+    fn init(conn: Connection) -> Result<Self, StoreError> {
+        conn.execute_batch(SCHEMA)?;
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
+    }
+
+    fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn settings(&self) -> Result<Settings, StoreError> {
+        let json: Option<String> = self
+            .conn()
+            .query_row("SELECT json FROM settings WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        match json {
+            Some(json) => Ok(serde_json::from_value(upgrade(serde_json::from_str(
+                &json,
+            )?))?),
+            None => Ok(Settings::default()),
+        }
+    }
+
+    pub fn save_settings(&self, settings: &Settings) -> Result<(), StoreError> {
+        self.conn().execute(
+            "INSERT INTO settings (id, json) VALUES (1, ?1)
+             ON CONFLICT (id) DO UPDATE SET json = excluded.json",
+            [serde_json::to_string(settings)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn add_history(&self, text: &str) -> Result<HistoryEntry, StoreError> {
+        Ok(self.conn().query_row(
+            "INSERT INTO history (text, created_at)
+             VALUES (?1, CAST(unixepoch('subsec') * 1000 AS INTEGER))
+             RETURNING id, text, created_at",
+            [text],
+            history_entry,
+        )?)
+    }
+
+    pub fn history(&self) -> Result<Vec<HistoryEntry>, StoreError> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id, text, created_at FROM history ORDER BY id DESC")?;
+        let entries = stmt
+            .query_map([], history_entry)?
+            .collect::<Result<_, _>>()?;
+        Ok(entries)
+    }
+
+    pub fn api_key(&self) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .conn()
+            .query_row(
+                "SELECT value FROM secrets WHERE name = 'api_key'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn api_key_preview(&self) -> Result<Option<String>, StoreError> {
+        Ok(self.api_key()?.map(|key| {
+            let visible = if key.chars().count() > 12 { 4 } else { 2 };
+            let prefix: String = key.chars().take(visible).collect();
+            format!("{prefix}••••••••")
+        }))
+    }
+
+    pub fn set_api_key(&self, key: &str) -> Result<(), StoreError> {
+        if key.is_empty() {
+            self.conn()
+                .execute("DELETE FROM secrets WHERE name = 'api_key'", [])?;
+            return Ok(());
+        }
+        self.conn().execute(
+            "INSERT INTO secrets (name, value) VALUES ('api_key', ?1)
+             ON CONFLICT (name) DO UPDATE SET value = excluded.value",
+            [key],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_history(&self, id: i64) -> Result<(), StoreError> {
+        self.conn()
+            .execute("DELETE FROM history WHERE id = ?1", [id])?;
+        Ok(())
+    }
+}
+
+// Older versions stored a single optional `language` before the list of languages existed.
+fn upgrade(mut json: serde_json::Value) -> serde_json::Value {
+    if let Some(object) = json.as_object_mut() {
+        if !object.contains_key("languages") {
+            let languages = match object.remove("language") {
+                Some(serde_json::Value::String(language)) => vec![language],
+                _ => Vec::new(),
+            };
+            object.insert("languages".into(), languages.into());
+        }
+    }
+    json
+}
+
+fn history_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
+    Ok(HistoryEntry {
+        id: row.get(0)?,
+        text: row.get(1)?,
+        created_at: row.get(2)?,
+    })
+}
