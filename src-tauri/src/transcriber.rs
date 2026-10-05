@@ -104,7 +104,7 @@ impl Transcriber for HttpTranscriber {
             let body = response.text().unwrap_or_default();
             let message = serde_json::from_str::<ErrorBody>(&body)
                 .map(|body| body.error.message)
-                .unwrap_or(body);
+                .unwrap_or_else(|_| shorten(&body));
             return Err(TranscribeError::Http {
                 status: status.as_u16(),
                 message,
@@ -122,6 +122,15 @@ impl Transcriber for HttpTranscriber {
                 cost,
             })
             .map_err(|error| TranscribeError::InvalidResponse(error.to_string()))
+    }
+}
+
+// Proxies answer errors with whole HTML pages, which would end up in the tray menu.
+fn shorten(body: &str) -> String {
+    const LIMIT: usize = 200;
+    match body.char_indices().nth(LIMIT) {
+        Some((end, _)) => format!("{}…", &body[..end]),
+        None => body.to_string(),
     }
 }
 

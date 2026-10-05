@@ -80,6 +80,29 @@ fn http_error_carries_status_and_provider_message() {
 }
 
 #[test]
+fn long_non_json_error_body_is_shortened() {
+    let mut server = mockito::Server::new();
+    let page = format!("<html>{}</html>", "x".repeat(1000));
+    server
+        .mock("POST", "/audio/transcriptions")
+        .with_status(502)
+        .with_body(&page)
+        .create();
+
+    let error = HttpTranscriber::new()
+        .transcribe(request(server.url()))
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        TranscribeError::Http {
+            status: 502,
+            message: format!("{}…", &page[..200]),
+        }
+    );
+}
+
+#[test]
 fn base_url_with_trailing_slash_hits_the_same_endpoint() {
     let mut server = mockito::Server::new();
     let mock = server
