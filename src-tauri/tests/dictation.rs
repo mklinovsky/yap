@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use yap_lib::dictation::{
     Cue, Deps, Dictation, Feedback, Paster, Recorder, Recording, Secrets, ShortcutEvent::*,
-    Spawner, Status,
+    Snapshot, Spawner, Status,
 };
 use yap_lib::store::{Mode, Settings, Store};
 use yap_lib::transcriber::{TranscribeError, TranscribeRequest, Transcriber, Transcription};
@@ -71,7 +71,7 @@ struct FakeFeedback {
 }
 
 impl Feedback for FakeFeedback {
-    fn status(&self, _status: &Status) {}
+    fn status(&self, _snapshot: &Snapshot) {}
 
     fn cue(&self, cue: Cue) {
         self.cues.lock().unwrap().push(cue);
@@ -498,5 +498,99 @@ fn recording_opens_the_configured_input_device() {
     assert_eq!(
         *h.recorder.opened.lock().unwrap(),
         [Some("coreaudio:USBMic".to_string())]
+    );
+}
+
+fn fail_next_transcription(h: &Harness) {
+    *h.transcriber.reply.lock().unwrap() = Err(TranscribeError::Network("timed out".into()));
+}
+
+#[test]
+fn failed_transcription_can_be_retried_with_the_same_audio() {
+    let h = Harness::hold();
+    fail_next_transcription(&h);
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+
+    *h.transcriber.reply.lock().unwrap() = Ok(transcript("hello world"));
+    h.dictation.retry();
+    h.run_background_jobs();
+
+    let sent: Vec<usize> = h
+        .transcriber
+        .sent
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| r.audio_len)
+        .collect();
+    assert_eq!(
+        (h.pasted(), sent[0] == sent[1]),
+        (vec!["hello world".to_string()], true)
+    );
+}
+
+#[test]
+fn retry_is_offered_until_a_transcription_succeeds() {
+    let h = Harness::hold();
+    assert!(!h.dictation.snapshot().can_retry);
+
+    fail_next_transcription(&h);
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+    assert!(h.dictation.snapshot().can_retry);
+
+    *h.transcriber.reply.lock().unwrap() = Ok(transcript("hello world"));
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+    assert!(!h.dictation.snapshot().can_retry);
+}
+
+#[test]
+fn failed_paste_is_not_retried_because_the_transcript_is_in_history() {
+    let h = Harness::hold();
+    *h.paster.failure.lock().unwrap() = Some("Accessibility permission missing".into());
+
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+
+    assert!(!h.dictation.snapshot().can_retry);
+}
+
+#[test]
+fn retry_without_a_failed_recording_does_nothing() {
+    let h = Harness::hold();
+
+    h.dictation.retry();
+    h.run_background_jobs();
+
+    assert_eq!(
+        (
+            h.dictation.status(),
+            h.transcriber.sent.lock().unwrap().len()
+        ),
+        (Status::Idle, 0)
+    );
+}
+
+#[test]
+fn snapshot_serializes_status_with_retry_flag() {
+    let h = Harness::hold();
+    fail_next_transcription(&h);
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+
+    assert_eq!(
+        serde_json::to_value(h.dictation.snapshot()).unwrap(),
+        serde_json::json!({
+            "state": "error",
+            "message": "network error: timed out",
+            "canRetry": true
+        })
     );
 }

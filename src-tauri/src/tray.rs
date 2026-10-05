@@ -8,7 +8,7 @@ use tauri::menu::MenuItem;
 use tauri::tray::TrayIcon;
 use tauri::{AppHandle, Emitter, Runtime};
 
-use crate::dictation::{Cue, Feedback, Status};
+use crate::dictation::{Cue, Feedback, Snapshot, Status};
 
 pub const HISTORY_CHANGED: &str = "history-changed";
 pub const STATUS_CHANGED: &str = "status-changed";
@@ -17,11 +17,12 @@ pub struct TrayFeedback<R: Runtime> {
     pub app: AppHandle<R>,
     pub tray: TrayIcon<R>,
     pub status_item: MenuItem<R>,
+    pub retry_item: MenuItem<R>,
 }
 
 impl<R: Runtime> Feedback for TrayFeedback<R> {
-    fn status(&self, status: &Status) {
-        let (label, icon, template) = match status {
+    fn status(&self, snapshot: &Snapshot) {
+        let (label, icon, template) = match &snapshot.status {
             Status::Idle => ("Idle".to_string(), dot([0, 0, 0, 255]), true),
             Status::Recording => ("Recording…".to_string(), dot([230, 57, 70, 255]), false),
             Status::Transcribing => ("Transcribing…".to_string(), dot([244, 162, 97, 255]), false),
@@ -31,7 +32,9 @@ impl<R: Runtime> Feedback for TrayFeedback<R> {
         let _ = self.tray.set_icon_as_template(template);
         let _ = self.tray.set_tooltip(Some(format!("yap — {label}")));
         let _ = self.status_item.set_text(label);
-        let _ = self.app.emit(STATUS_CHANGED, status);
+        let busy = matches!(snapshot.status, Status::Recording | Status::Transcribing);
+        let _ = self.retry_item.set_enabled(snapshot.can_retry && !busy);
+        let _ = self.app.emit(STATUS_CHANGED, snapshot);
     }
 
     fn cue(&self, cue: Cue) {

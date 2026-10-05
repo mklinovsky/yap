@@ -14,7 +14,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use dictation::{Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status};
+use dictation::{Deps, Dictation, Feedback, ShortcutEvent, Snapshot, Spawner, Status};
 use paster::ClipboardPaster;
 use recorder::CpalRecorder;
 use store::{HistoryEntry, Settings, Store};
@@ -32,6 +32,7 @@ impl Spawner for ThreadSpawner {
 enum Input {
     Shortcut(ShortcutEvent),
     Toggle,
+    Retry,
 }
 
 impl dictation::Secrets for Store {
@@ -113,13 +114,18 @@ async fn list_input_devices() -> Result<Vec<recorder::InputDevice>, String> {
 }
 
 #[tauri::command]
-async fn get_status(state: State<'_>) -> Result<Status, String> {
-    Ok(state.dictation.status())
+async fn get_status(state: State<'_>) -> Result<Snapshot, String> {
+    Ok(state.dictation.snapshot())
 }
 
 #[tauri::command]
 async fn toggle_recording(state: State<'_>) -> Result<(), String> {
     state.inputs.send(Input::Toggle).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn retry_recording(state: State<'_>) -> Result<(), String> {
+    state.inputs.send(Input::Retry).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -215,6 +221,7 @@ pub fn run() {
             list_input_devices,
             get_status,
             toggle_recording,
+            retry_recording,
             pause_shortcut,
             resume_shortcut
         ])
@@ -227,10 +234,13 @@ pub fn run() {
             let store = Arc::new(Store::open(&data_dir.join("yap.db"))?);
 
             let status_item = MenuItem::with_id(app, "status", "Idle", false, None::<&str>)?;
+            let retry_item =
+                MenuItem::with_id(app, "retry", "Retry last recording", false, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[
                     &status_item,
+                    &retry_item,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, "open", "Open yap…", true, None::<&str>)?,
                     &PredefinedMenuItem::separator(app)?,
@@ -244,6 +254,9 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => open_window(app),
+                    "retry" => {
+                        let _ = app.state::<AppState>().inputs.send(Input::Retry);
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -253,6 +266,7 @@ pub fn run() {
                 app: app.handle().clone(),
                 tray,
                 status_item,
+                retry_item,
             });
             let paster = Arc::new(ClipboardPaster::new(app.handle().clone()));
             let dictation = Dictation::new(Deps {
@@ -273,6 +287,7 @@ pub fn run() {
                     match input {
                         Input::Shortcut(event) => worker.handle(event),
                         Input::Toggle => worker.toggle(),
+                        Input::Retry => worker.retry(),
                     }
                 }
             });
@@ -286,7 +301,10 @@ pub fn run() {
 
             let shortcut = store.settings()?.shortcut;
             if let Err(error) = register_shortcut(app.handle(), &shortcut) {
-                feedback.status(&Status::Error(format!("Shortcut \"{shortcut}\": {error}")));
+                feedback.status(&Snapshot {
+                    status: Status::Error(format!("Shortcut \"{shortcut}\": {error}")),
+                    can_retry: false,
+                });
             }
 
             if store.api_key_preview()?.is_none() {

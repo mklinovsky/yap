@@ -35,6 +35,15 @@ pub enum Status {
     Error(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snapshot {
+    #[serde(flatten)]
+    pub status: Status,
+    /// The audio of the last failed transcription is kept until a transcription succeeds.
+    pub can_retry: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cue {
     Start,
@@ -58,7 +67,7 @@ pub trait Paster: Send + Sync {
 }
 
 pub trait Feedback: Send + Sync {
-    fn status(&self, status: &Status);
+    fn status(&self, snapshot: &Snapshot);
     fn cue(&self, cue: Cue);
     fn history_changed(&self);
 }
@@ -85,6 +94,7 @@ pub struct Deps {
 pub struct Dictation {
     deps: Arc<Deps>,
     status: Arc<Mutex<Status>>,
+    failed: Arc<Mutex<Option<Recording>>>,
 }
 
 impl Dictation {
@@ -92,6 +102,7 @@ impl Dictation {
         Self {
             deps: Arc::new(deps),
             status: Arc::new(Mutex::new(Status::Idle)),
+            failed: Arc::default(),
         }
     }
 
@@ -113,6 +124,23 @@ impl Dictation {
         }
     }
 
+    pub fn retry(&self) {
+        if matches!(self.status(), Status::Recording | Status::Transcribing) {
+            return;
+        }
+        let failed = self.failed().take();
+        if let Some(recording) = failed {
+            self.transcribe(recording);
+        }
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            status: self.status(),
+            can_retry: self.failed().is_some(),
+        }
+    }
+
     pub fn status(&self) -> Status {
         self.status
             .lock()
@@ -121,8 +149,12 @@ impl Dictation {
     }
 
     fn set_status(&self, status: Status) {
-        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = status.clone();
-        self.deps.feedback.status(&status);
+        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = status;
+        self.deps.feedback.status(&self.snapshot());
+    }
+
+    fn failed(&self) -> std::sync::MutexGuard<'_, Option<Recording>> {
+        self.failed.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn cue(&self, cue: Cue) {
@@ -155,6 +187,10 @@ impl Dictation {
             self.set_status(Status::Idle);
             return;
         }
+        self.transcribe(recording);
+    }
+
+    fn transcribe(&self, recording: Recording) {
         self.set_status(Status::Transcribing);
         let this = self.clone();
         self.deps
@@ -178,26 +214,31 @@ impl Dictation {
             keywords: settings.keywords,
             audio,
         };
-        match self.deps.transcriber.transcribe(request) {
-            Ok(transcription) if transcription.text.trim().is_empty() => {
-                self.set_status(Status::Idle)
+        let transcription = match self.deps.transcriber.transcribe(request) {
+            Ok(transcription) => transcription,
+            Err(error) => {
+                *self.failed() = Some(recording);
+                self.set_status(Status::Error(error.to_string()));
+                return;
             }
-            Ok(transcription) => {
-                let text = transcription.text.trim();
-                if self
-                    .deps
-                    .store
-                    .add_history(text, transcription.cost, recording.seconds() as f64, size)
-                    .is_ok()
-                {
-                    self.deps.feedback.history_changed();
-                }
-                match self.deps.paster.paste(text) {
-                    Ok(()) => self.set_status(Status::Idle),
-                    Err(error) => self.set_status(Status::Error(error)),
-                }
-            }
-            Err(error) => self.set_status(Status::Error(error.to_string())),
+        };
+        *self.failed() = None;
+        let text = transcription.text.trim();
+        if text.is_empty() {
+            self.set_status(Status::Idle);
+            return;
+        }
+        if self
+            .deps
+            .store
+            .add_history(text, transcription.cost, recording.seconds() as f64, size)
+            .is_ok()
+        {
+            self.deps.feedback.history_changed();
+        }
+        match self.deps.paster.paste(text) {
+            Ok(()) => self.set_status(Status::Idle),
+            Err(error) => self.set_status(Status::Error(error)),
         }
     }
 }
