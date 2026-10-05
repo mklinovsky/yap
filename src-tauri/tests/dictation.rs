@@ -28,6 +28,7 @@ struct SentRequest {
     api_key: String,
     model: String,
     languages: Vec<String>,
+    audio_len: usize,
 }
 
 struct FakeTranscriber {
@@ -42,6 +43,7 @@ impl Transcriber for FakeTranscriber {
             api_key: request.api_key,
             model: request.model,
             languages: request.languages,
+            audio_len: request.audio.len(),
         });
         self.reply.lock().unwrap().clone()
     }
@@ -222,6 +224,24 @@ fn transcription_cost_is_saved_with_the_history_entry() {
         .map(|e| e.cost)
         .collect();
     assert_eq!(costs, [Some(0.0021)]);
+}
+
+#[test]
+fn history_entry_records_duration_and_uploaded_size() {
+    let h = Harness::hold();
+    *h.recorder.next.lock().unwrap() = Recording {
+        samples: vec![0.3; 48_000 * 2 * 3 / 2],
+        sample_rate: 48_000,
+        channels: 2,
+    };
+
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+
+    let uploaded = h.transcriber.sent.lock().unwrap()[0].audio_len as i64;
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!((entry.duration, entry.size), (Some(1.5), Some(uploaded)));
 }
 
 #[test]

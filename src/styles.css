@@ -537,11 +537,13 @@ textarea::placeholder {
 }
 
 .card time,
+.card-audio,
 .card-cost {
   font-size: 11px;
   color: var(--muted);
 }
 
+.card-audio,
 .card-cost {
   font-variant-numeric: tabular-nums;
 }

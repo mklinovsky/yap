@@ -4,6 +4,17 @@ import { api, HISTORY_CHANGED, type HistoryEntry } from "./api";
 
 const formatCost = (cost: number) => `$${cost.toFixed(4)}`;
 
+const formatDuration = (seconds: number) => {
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)} s`;
+  }
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+};
+
+const formatSize = (bytes: number) =>
+  bytes < 1_000_000 ? `${Math.round(bytes / 1000)} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`;
+
 export function History() {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
 
@@ -52,6 +63,11 @@ export function History() {
                     timeStyle: "short",
                   })}
                 </time>
+                {entry.duration !== null && entry.size !== null && (
+                  <span className="card-audio">
+                    {formatDuration(entry.duration)} · {formatSize(entry.size)}
+                  </span>
+                )}
                 {entry.cost !== null && <span className="card-cost">{formatCost(entry.cost)}</span>}
               </div>
               <div className="card-actions">

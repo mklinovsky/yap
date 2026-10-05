@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+use crate::audio::encode_flac;
 use crate::store::{Mode, Store};
 use crate::transcriber::{TranscribeRequest, Transcriber};
-use crate::wav::encode_wav;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Recording {
@@ -164,17 +164,19 @@ impl Dictation {
 
     fn transcribe_and_paste(&self, recording: Recording) {
         let settings = self.deps.store.settings().unwrap_or_default();
+        let audio = encode_flac(
+            &recording.samples,
+            recording.sample_rate,
+            recording.channels,
+        );
+        let size = audio.len() as i64;
         let request = TranscribeRequest {
             base_url: settings.base_url,
             api_key: self.deps.secrets.api_key().unwrap_or_default(),
             model: settings.model,
             languages: settings.languages,
             keywords: settings.keywords,
-            wav: encode_wav(
-                &recording.samples,
-                recording.sample_rate,
-                recording.channels,
-            ),
+            audio,
         };
         match self.deps.transcriber.transcribe(request) {
             Ok(transcription) if transcription.text.trim().is_empty() => {
@@ -185,7 +187,7 @@ impl Dictation {
                 if self
                     .deps
                     .store
-                    .add_history(text, transcription.cost)
+                    .add_history(text, transcription.cost, recording.seconds() as f64, size)
                     .is_ok()
                 {
                     self.deps.feedback.history_changed();

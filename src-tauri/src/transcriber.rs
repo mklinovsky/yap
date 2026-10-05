@@ -7,7 +7,7 @@ pub struct TranscribeRequest {
     pub model: String,
     pub languages: Vec<String>,
     pub keywords: Vec<String>,
-    pub wav: Vec<u8>,
+    pub audio: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -66,9 +66,9 @@ struct ErrorDetail {
 
 impl Transcriber for HttpTranscriber {
     fn transcribe(&self, request: TranscribeRequest) -> Result<Transcription, TranscribeError> {
-        let file = Part::bytes(request.wav)
-            .file_name("audio.wav")
-            .mime_str("audio/wav")
+        let file = Part::bytes(request.audio)
+            .file_name("audio.flac")
+            .mime_str("audio/flac")
             .map_err(network)?;
         let mut form = Form::new()
             .text("model", request.model.clone())

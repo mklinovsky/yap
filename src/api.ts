@@ -24,6 +24,10 @@ export interface HistoryEntry {
   createdAt: number;
   /** USD, when the endpoint reported it. */
   cost: number | null;
+  /** Seconds of recorded audio; null for entries from older versions. */
+  duration: number | null;
+  /** Bytes uploaded; null for entries from older versions. */
+  size: number | null;
 }
 
 export type Status =

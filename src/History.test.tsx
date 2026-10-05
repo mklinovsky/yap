@@ -28,8 +28,22 @@ function mockBackend(entries: HistoryEntry[]) {
 }
 
 const entries: HistoryEntry[] = [
-  { id: 2, text: "Second thought", createdAt: Date.UTC(2026, 9, 5, 12, 30), cost: 0.0012 },
-  { id: 1, text: "First thought", createdAt: Date.UTC(2026, 9, 5, 12, 0), cost: null },
+  {
+    id: 2,
+    text: "Second thought",
+    createdAt: Date.UTC(2026, 9, 5, 12, 30),
+    cost: 0.0012,
+    duration: 12.4,
+    size: 204_800,
+  },
+  {
+    id: 1,
+    text: "First thought",
+    createdAt: Date.UTC(2026, 9, 5, 12, 0),
+    cost: null,
+    duration: null,
+    size: null,
+  },
 ];
 
 test("lists transcripts in the order the backend returns them", async () => {
@@ -72,7 +86,17 @@ test("shows a new transcript when the backend announces a history change", async
   render(<History />);
   await screen.findByText("Second thought");
 
-  backend.rows = [{ id: 3, text: "Fresh dictation", createdAt: Date.UTC(2026, 9, 5, 13, 0), cost: null }, ...entries];
+  backend.rows = [
+    {
+      id: 3,
+      text: "Fresh dictation",
+      createdAt: Date.UTC(2026, 9, 5, 13, 0),
+      cost: null,
+      duration: null,
+      size: null,
+    },
+    ...entries,
+  ];
   await emit(HISTORY_CHANGED);
 
   expect(await screen.findByText("Fresh dictation")).toBeInTheDocument();
@@ -99,7 +123,14 @@ test("shows what each transcript cost when the endpoint reported it", async () =
 test("totals the cost of the listed transcripts", async () => {
   mockBackend([
     ...entries,
-    { id: 0, text: "Earlier thought", createdAt: Date.UTC(2026, 9, 5, 11, 0), cost: 0.003 },
+    {
+      id: 0,
+      text: "Earlier thought",
+      createdAt: Date.UTC(2026, 9, 5, 11, 0),
+      cost: 0.003,
+      duration: null,
+      size: null,
+    },
   ]);
 
   render(<History />);
@@ -114,4 +145,22 @@ test("shows no total when no transcript has a cost", async () => {
 
   await screen.findByText("Second thought");
   expect(screen.queryByText(/Total/)).toBeNull();
+});
+
+test("shows how long each recording was and how much audio was uploaded", async () => {
+  mockBackend(entries);
+
+  render(<History />);
+
+  const [recorded, older] = await screen.findAllByRole("listitem");
+  expect(within(recorded).getByText("12.4 s · 205 KB")).toBeInTheDocument();
+  expect(within(older).queryByText(/ KB| MB/)).toBeNull();
+});
+
+test("shows minutes and megabytes for long recordings", async () => {
+  mockBackend([{ ...entries[0], duration: 75.2, size: 2_400_000 }]);
+
+  render(<History />);
+
+  expect(await screen.findByText("1:15 · 2.4 MB")).toBeInTheDocument();
 });

@@ -48,8 +48,8 @@ fn saved_settings_survive_reopening_the_database() {
 fn history_lists_transcripts_newest_first() {
     let store = Store::open_in_memory().unwrap();
 
-    store.add_history("first", None).unwrap();
-    store.add_history("second", None).unwrap();
+    store.add_history("first", None, 1.0, 1).unwrap();
+    store.add_history("second", None, 1.0, 1).unwrap();
 
     let texts: Vec<String> = store
         .history()
@@ -63,8 +63,8 @@ fn history_lists_transcripts_newest_first() {
 #[test]
 fn deleted_history_entry_is_no_longer_listed() {
     let store = Store::open_in_memory().unwrap();
-    let keep = store.add_history("keep", None).unwrap();
-    let drop = store.add_history("drop", None).unwrap();
+    let keep = store.add_history("keep", None, 1.0, 1).unwrap();
+    let drop = store.add_history("drop", None, 1.0, 1).unwrap();
 
     store.delete_history(drop.id).unwrap();
 
@@ -157,8 +157,8 @@ fn api_key_preview_shows_only_the_first_characters() {
 fn history_entry_keeps_its_cost() {
     let store = Store::open_in_memory().unwrap();
 
-    store.add_history("priced", Some(0.0042)).unwrap();
-    store.add_history("unpriced", None).unwrap();
+    store.add_history("priced", Some(0.0042), 1.0, 1).unwrap();
+    store.add_history("unpriced", None, 1.0, 1).unwrap();
 
     let costs: Vec<Option<f64>> = store
         .history()
@@ -170,8 +170,18 @@ fn history_entry_keeps_its_cost() {
 }
 
 #[test]
-fn history_created_before_costs_existed_gains_a_cost_column() {
-    let path = std::env::temp_dir().join(format!("yap-cost-{}.db", std::process::id()));
+fn history_entry_keeps_its_recording_duration_and_upload_size() {
+    let store = Store::open_in_memory().unwrap();
+
+    store.add_history("timed", None, 12.5, 204_800).unwrap();
+
+    let entry = store.history().unwrap().remove(0);
+    assert_eq!((entry.duration, entry.size), (Some(12.5), Some(204_800)));
+}
+
+#[test]
+fn history_from_older_versions_gains_missing_columns() {
+    let path = std::env::temp_dir().join(format!("yap-history-{}.db", std::process::id()));
     let _ = std::fs::remove_file(&path);
     rusqlite::Connection::open(&path)
         .unwrap()
@@ -186,15 +196,21 @@ fn history_created_before_costs_existed_gains_a_cost_column() {
         .unwrap();
 
     let store = Store::open(&path).unwrap();
-    store.add_history("new", Some(0.5)).unwrap();
-    let entries: Vec<(String, Option<f64>)> = store
+    store.add_history("new", Some(0.5), 2.0, 64_000).unwrap();
+    let entries: Vec<_> = store
         .history()
         .unwrap()
         .into_iter()
-        .map(|entry| (entry.text, entry.cost))
+        .map(|entry| (entry.text, entry.cost, entry.duration, entry.size))
         .collect();
     drop(store);
     std::fs::remove_file(&path).unwrap();
 
-    assert_eq!(entries, [("new".into(), Some(0.5)), ("old".into(), None)]);
+    assert_eq!(
+        entries,
+        [
+            ("new".into(), Some(0.5), Some(2.0), Some(64_000)),
+            ("old".into(), None, None, None)
+        ]
+    );
 }

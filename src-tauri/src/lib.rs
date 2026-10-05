@@ -1,10 +1,10 @@
+pub mod audio;
 pub mod dictation;
 pub mod paster;
 pub mod recorder;
 pub mod store;
 pub mod transcriber;
 pub mod tray;
-pub mod wav;
 
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -159,7 +159,7 @@ fn open_window<R: Runtime>(app: &AppHandle<R>) {
             let url = WebviewUrl::App("index.html".into());
             let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW, url)
                 .title("yap")
-                .inner_size(780.0, 560.0)
+                .inner_size(780.0, 680.0)
                 .min_inner_size(640.0, 420.0)
                 .theme(Some(tauri::Theme::Dark));
             #[cfg(target_os = "macos")]

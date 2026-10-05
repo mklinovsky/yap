@@ -10,7 +10,7 @@ fn request(base_url: String) -> TranscribeRequest {
         model: "whisper-1".into(),
         languages: vec![],
         keywords: vec![],
-        wav: b"RIFF-fake-wav".to_vec(),
+        audio: b"fLaC-fake".to_vec(),
     }
 }
 
@@ -22,7 +22,9 @@ fn returns_text_transcribed_by_the_endpoint() {
         .match_header("authorization", "Bearer sk-test")
         .match_body(Matcher::AllOf(vec![
             Matcher::Regex(r#"name="model"\r\n\r\nwhisper-1\r\n"#.into()),
-            Matcher::Regex(r#"name="file"; filename="audio.wav""#.into()),
+            Matcher::Regex(
+                r#"name="file"; filename="audio.flac"\r\nContent-Type: audio/flac"#.into(),
+            ),
         ]))
         .with_header("content-type", "application/json")
         .with_body(r#"{"text":"hello world"}"#)
