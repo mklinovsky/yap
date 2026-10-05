@@ -11,6 +11,8 @@ export interface Settings {
   shortcut: string;
   mode: Mode;
   sounds: boolean;
+  /** A recording is stopped and transcribed once it reaches this length. */
+  maxMinutes: number;
 }
 
 export interface InputDevice {

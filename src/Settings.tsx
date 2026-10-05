@@ -3,6 +3,8 @@ import { api, type InputDevice, type Mode, type Settings as SettingsData } from 
 import { LanguagePicker } from "./LanguagePicker";
 import { ShortcutRecorder } from "./ShortcutRecorder";
 
+const MAX_MINUTES = [5, 10, 20, 30, 60];
+
 export function Settings() {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [keyPreview, setKeyPreview] = useState<string | null>(null);
@@ -179,6 +181,21 @@ export function Settings() {
                 </div>
               </div>
               <label className="row">
+                <span className="row-label">Max length</span>
+                <select
+                  value={settings.maxMinutes}
+                  onChange={(e) => update({ maxMinutes: Number(e.target.value) })}
+                >
+                  {[...new Set([...MAX_MINUTES, settings.maxMinutes])]
+                    .sort((a, b) => a - b)
+                    .map((minutes) => (
+                      <option key={minutes} value={minutes}>
+                        {minutes} min
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="row">
                 <span className="row-label">Sounds</span>
                 <input
                   type="checkbox"
@@ -190,7 +207,8 @@ export function Settings() {
             </div>
             <p className="group-note">
               A disconnected input falls back to the system default. Hold: record while the shortcut
-              is held. Toggle: press once to start, again to stop.
+              is held. Toggle: press once to start, again to stop. At the max length the recording
+              stops and is transcribed; OpenAI rejects uploads over 25 MB (about 20 minutes).
             </p>
           </section>
 

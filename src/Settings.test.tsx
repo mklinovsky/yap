@@ -14,6 +14,7 @@ const stored: SettingsData = {
   shortcut: "Ctrl+Shift+D",
   mode: "toggle",
   sounds: false,
+  maxMinutes: 20,
 };
 
 let preview: string | null;
@@ -243,4 +244,20 @@ test("Save is enabled only while there are unsaved changes", async () => {
 
   await screen.findByText("Saved");
   expect(save).toBeDisabled();
+});
+
+test("picks the maximum recording length", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Settings />);
+
+  const maxLength = await screen.findByLabelText("Max length");
+  expect(maxLength).toHaveDisplayValue("20 min");
+  await user.selectOptions(maxLength, "30 min");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await screen.findByText("Saved");
+  expect(calls.find((c) => c.cmd === "save_settings")?.payload).toEqual({
+    settings: { ...stored, maxMinutes: 30 },
+  });
 });
