@@ -52,16 +52,6 @@ pnpm lint           # ESLint, clippy, rustfmt
 pnpm tauri build    # release bundle in src-tauri/target/release/bundle
 ```
 
-## Release
-
-Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, then push a tag:
-
-```sh
-git tag v0.1.0 && git push origin v0.1.0
-```
-
-The Release workflow builds a universal DMG and attaches it to a draft GitHub release; publish it from the Releases page.
-
 ## License
 
 [MIT](LICENSE)
