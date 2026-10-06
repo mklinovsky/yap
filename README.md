@@ -4,6 +4,9 @@ Push-to-talk dictation for macOS. Press a global shortcut, speak, and the transc
 
 - Works with any OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, LiteLLM, …)
 - Hold or toggle mode, optional start/stop sounds
+- Recordings stop and are transcribed at a max length
+- Restores your previous clipboard after pasting
+- Optional open at login
 - Multiple languages and custom vocabulary (`gpt-transcribe`)
 - History with duration, upload size and cost (cost via LiteLLM's `x-litellm-response-cost` header)
 - Lives in the menu bar, no Dock icon
@@ -14,7 +17,11 @@ No LLM cleanup: you get the raw transcript.
 
 1. Download the `.dmg` from [Releases](../../releases/latest) (universal: Apple Silicon and Intel).
 2. Drag `yap.app` to Applications.
-3. Grant **Microphone** (prompted on first recording) and **Accessibility** (System Settings → Privacy & Security, needed to paste).
+3. yap is not signed, so macOS refuses to open the downloaded app ("damaged" on Apple Silicon). Clear the download flag:
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/yap.app
+   ```
+4. Grant **Microphone** (prompted on first recording) and **Accessibility** (System Settings → Privacy & Security, needed to paste).
 
 ## Setup
 
@@ -26,8 +33,12 @@ Settings opens on first launch:
 | API key | — (required) |
 | Model | `gpt-transcribe` |
 | Languages | auto-detect |
-| Shortcut | `⌥Space` |
+| Input | system default |
+| Shortcut | `⌘⇧;` |
 | Mode | Hold |
+| Max length | 5 min |
+| Sounds | on |
+| Open at login | off |
 
 Data, including the API key in plain text, is stored in `~/Library/Application Support/com.mklinovsky.yap/yap.db`.
 
@@ -42,16 +53,6 @@ pnpm test           # Vitest + cargo test
 pnpm lint           # ESLint, clippy, rustfmt
 pnpm tauri build    # release bundle in src-tauri/target/release/bundle
 ```
-
-## Release
-
-Bump the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`, then push a tag:
-
-```sh
-git tag v0.1.0 && git push origin v0.1.0
-```
-
-The Release workflow builds a universal DMG and attaches it to a draft GitHub release.
 
 ## License
 

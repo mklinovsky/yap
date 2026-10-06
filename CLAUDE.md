@@ -23,13 +23,13 @@ Push-to-talk dictation for macOS (Windows/Linux possible later), in the spirit o
 - Run `cargo fmt` (in `src-tauri/`) after Rust edits, otherwise `pnpm lint` fails on the fmt check.
 - The first DMG bundling attempt once failed with a generic `bundle_dmg.sh` error and passed on rerun; cause unknown. A leftover `rw.*.dmg` in `target/release/bundle/macos/` can be deleted.
 - CI (`.github/workflows/ci.yml`): `pnpm build` (must precede cargo: `generate_context!` needs `dist/`), lint, test on macOS.
-- Release: bump the version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, then push a `v*` tag; `.github/workflows/release.yml` builds a universal DMG into a draft GitHub release.
+- Release: bump the version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, then push a `v*` tag; `.github/workflows/release.yml` builds a universal DMG and publishes the GitHub release right away (`releaseDraft: false`, user's choice). The bundle is unsigned (no `signingIdentity`), so downloaded copies need `xattr -dr com.apple.quarantine` (README Install step).
 
 ## Working agreements
 
 - TDD, vertical slices: one test, watch it fail for the right reason (assertion or `todo!()` panic, not a compile/import error), minimal code, green. Tests only at agreed seams (below). If a test passes on first run because earlier code already covers it, say so.
 - Ask one question at a time when aligning; give a recommended option. Don't silently pick on decisions with rework cost.
-- Nothing is committed yet (single `init` commit on `main`). Commit only when asked; branch names never use a `claude/` prefix.
+- Commit only when asked; branch names never use a `claude/` prefix.
 - The app has never been run by Claude: everything visual or platform-level (vibrancy, tray, focus, mic, paste, sounds) is unverified unless the user reports on it.
 
 ## Architecture
