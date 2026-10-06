@@ -1,6 +1,6 @@
 # yap
 
-Push-to-talk dictation for macOS. Press a global shortcut, speak, and the transcript is pasted at the cursor.
+Dictation for macOS. Press a global shortcut, speak, and the transcript is pasted at the cursor.
 
 - Works with any OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, LiteLLM, …)
 - Hold or toggle mode, optional start/stop sounds

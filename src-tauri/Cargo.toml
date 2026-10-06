@@ -1,7 +1,7 @@
 [package]
 name = "yap"
 version = "0.1.0"
-description = "Push-to-talk dictation"
+description = "Dictation for macOS"
 authors = ["mklinovsky"]
 edition = "2021"
 

@@ -1,6 +1,6 @@
 # yap
 
-Push-to-talk dictation for macOS (Windows/Linux possible later), in the spirit of superwhisper / Whispering but deliberately small: press a global shortcut, speak, the audio goes to an OpenAI-compatible transcription endpoint, the text is pasted at the cursor and saved to history. No LLM cleanup pass. Open source (MIT).
+Dictation for macOS (Windows/Linux possible later), in the spirit of superwhisper / Whispering but deliberately small: press a global shortcut, speak, the audio goes to an OpenAI-compatible transcription endpoint, the text is pasted at the cursor and saved to history. No LLM cleanup pass. Open source (MIT).
 
 ## Stack
 
