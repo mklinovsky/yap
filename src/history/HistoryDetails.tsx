@@ -32,7 +32,7 @@ export function HistoryDetails({ entry }: { entry: HistoryEntry }) {
     return null;
   }
   return (
-    <div className="card-details">
+    <>
       <button
         type="button"
         className="disclosure"
@@ -54,6 +54,6 @@ export function HistoryDetails({ entry }: { entry: HistoryEntry }) {
           ))}
         </dl>
       )}
-    </div>
+    </>
   );
 }

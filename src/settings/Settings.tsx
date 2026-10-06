@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type Settings as SettingsData } from "../api";
 import { SaveBar } from "../components/SaveBar";
 import { useSaveState } from "../components/useSaveState";
+import { AppearanceGroup } from "./AppearanceGroup";
 import { DictationGroup } from "./DictationGroup";
 import { TranscriptionGroup } from "./TranscriptionGroup";
 
@@ -81,6 +82,7 @@ export function Settings() {
             onChange={update}
             onOpenAtLoginChange={setOpenAtLogin}
           />
+          <AppearanceGroup settings={settings} onChange={update} />
         </div>
       </div>
       <SaveBar status={status} dirty={dirty} />

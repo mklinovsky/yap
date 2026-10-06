@@ -1,5 +1,5 @@
 use yap_lib::store::{
-    Mode, NewHistoryEntry, Settings, Store, Transformation, Transformations, TrayState,
+    Mode, NewHistoryEntry, Settings, Store, Theme, Transformation, Transformations, TrayState,
 };
 
 #[test]
@@ -18,6 +18,7 @@ fn fresh_store_returns_default_settings() {
             mode: Mode::Hold,
             sounds: true,
             max_minutes: 5,
+            theme: Theme::Auto,
         }
     );
 }
@@ -36,6 +37,7 @@ fn saved_settings_survive_reopening_the_database() {
         mode: Mode::Toggle,
         sounds: false,
         max_minutes: 15,
+        theme: Theme::Light,
     };
 
     Store::open(&path)
@@ -142,6 +144,25 @@ fn settings_saved_before_max_length_existed_default_to_five_minutes() {
     std::fs::remove_file(&path).unwrap();
 
     assert_eq!(settings.max_minutes, 5);
+}
+
+#[test]
+fn settings_saved_before_theme_existed_default_to_auto() {
+    let path = std::env::temp_dir().join(format!("yap-theme-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    drop(Store::open(&path).unwrap());
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO settings (id, json) VALUES (1, ?1)",
+            [r#"{"baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","languages":[],"keywords":[],"inputDevice":null,"shortcut":"Alt+Space","mode":"toggle","sounds":true,"maxMinutes":5}"#],
+        )
+        .unwrap();
+
+    let settings = Store::open(&path).unwrap().settings().unwrap();
+    std::fs::remove_file(&path).unwrap();
+
+    assert_eq!(settings.theme, Theme::Auto);
 }
 
 #[test]

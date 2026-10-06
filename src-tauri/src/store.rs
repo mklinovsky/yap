@@ -10,6 +10,14 @@ pub enum Mode {
     Toggle,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    Auto,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -26,10 +34,16 @@ pub struct Settings {
     pub sounds: bool,
     #[serde(default = "default_max_minutes")]
     pub max_minutes: u32,
+    #[serde(default = "default_theme")]
+    pub theme: Theme,
 }
 
 fn default_max_minutes() -> u32 {
     5
+}
+
+fn default_theme() -> Theme {
+    Theme::Auto
 }
 
 impl Default for Settings {
@@ -44,6 +58,7 @@ impl Default for Settings {
             mode: Mode::Hold,
             sounds: true,
             max_minutes: default_max_minutes(),
+            theme: default_theme(),
         }
     }
 }

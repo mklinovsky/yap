@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type Mode = "hold" | "toggle";
 
+export type Theme = "auto" | "light" | "dark";
+
 export interface Settings {
   baseUrl: string;
   model: string;
@@ -12,6 +14,7 @@ export interface Settings {
   mode: Mode;
   sounds: boolean;
   maxMinutes: number;
+  theme: Theme;
 }
 
 export interface Transformation {

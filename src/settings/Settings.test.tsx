@@ -15,6 +15,7 @@ const stored: SettingsData = {
   mode: "toggle",
   sounds: false,
   maxMinutes: 5,
+  theme: "dark",
 };
 
 let preview: string | null;
@@ -257,6 +258,21 @@ test("picks the max recording length from minute presets", async () => {
   expect(await screen.findByText("Saved")).toBeInTheDocument();
   expect(calls.find((c) => c.cmd === "save_settings")?.payload).toEqual({
     settings: { ...stored, maxMinutes: 10 },
+  });
+});
+
+test("picks the theme", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Settings />);
+
+  expect(await screen.findByLabelText("Dark")).toBeChecked();
+  await user.click(screen.getByLabelText("Light"));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(await screen.findByText("Saved")).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === "save_settings")?.payload).toEqual({
+    settings: { ...stored, theme: "light" },
   });
 });
 

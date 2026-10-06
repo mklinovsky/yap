@@ -21,7 +21,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use dictation::{Apply, Clock, Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status, Timer};
 use paster::ClipboardPaster;
 use recorder::CpalRecorder;
-use store::{HistoryEntry, Settings, Store, Transformations};
+use store::{HistoryEntry, Settings, Store, Theme, Transformations};
 use transcriber::HttpTranscriber;
 use transformer::HttpTransformer;
 use tray::{dot, TrayFeedback, MENU_OPEN, MENU_PICK_PREFIX, MENU_QUIT, MENU_USE_ONCE};
@@ -108,7 +108,19 @@ async fn save_settings(app: AppHandle, state: State<'_>, settings: Settings) -> 
     state
         .store
         .save_settings(&settings)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if settings.theme != previous.theme {
+        app.set_theme(native_theme(settings.theme));
+    }
+    Ok(())
+}
+
+fn native_theme(theme: Theme) -> Option<tauri::Theme> {
+    match theme {
+        Theme::Auto => None,
+        Theme::Light => Some(tauri::Theme::Light),
+        Theme::Dark => Some(tauri::Theme::Dark),
+    }
 }
 
 #[tauri::command]
@@ -314,9 +326,8 @@ fn open_window<R: Runtime>(app: &AppHandle<R>) {
             let url = WebviewUrl::App("index.html".into());
             let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW, url)
                 .title("yap")
-                .inner_size(780.0, 800.0)
-                .min_inner_size(640.0, 420.0)
-                .theme(Some(tauri::Theme::Dark));
+                .inner_size(780.0, 900.0)
+                .min_inner_size(640.0, 420.0);
             #[cfg(target_os = "macos")]
             let builder = builder
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
@@ -463,8 +474,11 @@ pub fn run() {
                 apply_by_shortcut_id: Mutex::default(),
             });
 
+            let settings = store.settings()?;
+            app.set_theme(native_theme(settings.theme));
+
             let state = app.state::<AppState>();
-            let registered = bindings(&store.settings()?, &store.transformations()?)
+            let registered = bindings(&settings, &store.transformations()?)
                 .and_then(|bindings| register_all_or_none(app.handle(), &state, &bindings));
             if let Err(error) = registered {
                 feedback.status(&Status::Error(error));
