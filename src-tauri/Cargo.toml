@@ -30,6 +30,7 @@ arboard = "3.6.1"
 thiserror = "2.0.21"
 flacenc = { version = "0.5.1", default-features = false }
 rubato = "5.0.1"
+tauri-plugin-autostart = "2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

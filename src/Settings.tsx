@@ -11,16 +11,22 @@ export function Settings() {
   const [apiKey, setApiKey] = useState("");
   const [revealed, setRevealed] = useState(false);
   const [vocabulary, setVocabulary] = useState("");
-  const [saved, setSaved] = useState<{ settings: SettingsData; vocabulary: string } | null>(null);
+  const [openAtLogin, setOpenAtLogin] = useState(false);
+  const [saved, setSaved] = useState<{
+    settings: SettingsData;
+    vocabulary: string;
+    openAtLogin: boolean;
+  } | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [devices, setDevices] = useState<InputDevice[]>([]);
 
   useEffect(() => {
-    api.getSettings().then((loaded) => {
+    Promise.all([api.getSettings(), api.getOpenAtLogin()]).then(([loaded, loginItem]) => {
       const loadedVocabulary = loaded.keywords.join(", ");
       setSettings(loaded);
       setVocabulary(loadedVocabulary);
-      setSaved({ settings: loaded, vocabulary: loadedVocabulary });
+      setOpenAtLogin(loginItem);
+      setSaved({ settings: loaded, vocabulary: loadedVocabulary, openAtLogin: loginItem });
     });
     api.apiKeyPreview().then(setKeyPreview);
     api.listInputDevices().then(setDevices);
@@ -35,6 +41,7 @@ export function Settings() {
   const dirty =
     apiKey !== "" ||
     vocabulary !== saved?.vocabulary ||
+    openAtLogin !== saved?.openAtLogin ||
     JSON.stringify(settings) !== JSON.stringify(saved?.settings);
   const status =
     result && !result.ok ? result : dirty ? { ok: true, text: "Unsaved changes" } : result;
@@ -54,10 +61,13 @@ export function Settings() {
         setRevealed(false);
         setKeyPreview(await api.apiKeyPreview());
       }
+      if (openAtLogin !== saved?.openAtLogin) {
+        await api.setOpenAtLogin(openAtLogin);
+      }
       const nextVocabulary = keywords.join(", ");
       setSettings(next);
       setVocabulary(nextVocabulary);
-      setSaved({ settings: next, vocabulary: nextVocabulary });
+      setSaved({ settings: next, vocabulary: nextVocabulary, openAtLogin });
       setResult({ ok: true, text: "Saved" });
     } catch (error) {
       setResult({ ok: false, text: String(error) });
@@ -200,6 +210,15 @@ export function Settings() {
                   className="switch"
                   checked={settings.sounds}
                   onChange={(e) => update({ sounds: e.target.checked })}
+                />
+              </label>
+              <label className="row">
+                <span className="row-label">Open at login</span>
+                <input
+                  type="checkbox"
+                  className="switch"
+                  checked={openAtLogin}
+                  onChange={(e) => setOpenAtLogin(e.target.checked)}
                 />
               </label>
             </div>

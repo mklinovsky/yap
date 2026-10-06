@@ -13,6 +13,7 @@ use std::time::Duration;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use dictation::{Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status, Timer};
@@ -109,6 +110,22 @@ async fn set_api_key(state: State<'_>, key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_open_at_login(app: AppHandle) -> Result<bool, String> {
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_open_at_login(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let autolaunch = app.autolaunch();
+    if enabled {
+        autolaunch.enable()
+    } else {
+        autolaunch.disable()
+    }
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn list_history(state: State<'_>) -> Result<Vec<HistoryEntry>, String> {
     state.store.history().map_err(|e| e.to_string())
 }
@@ -175,7 +192,7 @@ fn open_window<R: Runtime>(app: &AppHandle<R>) {
             let url = WebviewUrl::App("index.html".into());
             let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW, url)
                 .title("yap")
-                .inner_size(780.0, 680.0)
+                .inner_size(780.0, 800.0)
                 .min_inner_size(640.0, 420.0)
                 .theme(Some(tauri::Theme::Dark));
             #[cfg(target_os = "macos")]
@@ -207,6 +224,11 @@ fn open_window<R: Runtime>(app: &AppHandle<R>) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .macos_launcher(MacosLauncher::LaunchAgent)
+                .build(),
+        )
+        .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     let event = match event.state {
@@ -222,6 +244,8 @@ pub fn run() {
             save_settings,
             api_key_preview,
             set_api_key,
+            get_open_at_login,
+            set_open_at_login,
             list_history,
             delete_history,
             copy_text,

@@ -31,6 +31,8 @@ function mockBackend(overrides: Record<string, (payload: unknown) => unknown> = 
     ],
     save_settings: () => null,
     set_api_key: () => null,
+    get_open_at_login: () => false,
+    set_open_at_login: () => null,
     pause_shortcut: () => null,
     resume_shortcut: () => null,
     ...overrides,
@@ -252,6 +254,39 @@ test("picks the max recording length from minute presets", async () => {
   expect(calls.find((c) => c.cmd === "save_settings")?.payload).toEqual({
     settings: { ...stored, maxMinutes: 10 },
   });
+});
+
+test("shows whether yap opens at login", async () => {
+  mockBackend({ get_open_at_login: () => true });
+
+  render(<Settings />);
+
+  expect(await screen.findByLabelText("Open at login")).toBeChecked();
+});
+
+test("turns on opening at login when saved", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Settings />);
+
+  await user.click(await screen.findByLabelText("Open at login"));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(await screen.findByText("Saved")).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === "set_open_at_login")?.payload).toEqual({ enabled: true });
+});
+
+test("leaves the login item alone when it was not changed", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Settings />);
+
+  await screen.findByLabelText("Open at login");
+  await user.type(screen.getByLabelText("Model"), "-2");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await screen.findByText("Saved");
+  expect(calls.some((c) => c.cmd === "set_open_at_login")).toBe(false);
 });
 
 test("Save is enabled only while there are unsaved changes", async () => {
