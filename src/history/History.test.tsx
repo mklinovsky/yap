@@ -2,7 +2,7 @@ import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { HISTORY_CHANGED, type HistoryEntry } from "../api";
 import { History } from "./History";
 
@@ -33,11 +33,14 @@ function mockBackend(entries: HistoryEntry[]) {
 }
 
 const visibilityObservers = new Set<FakeIntersectionObserver>();
+let observeCount = 0;
+let observeCountAtLastScroll = 0;
 
 class FakeIntersectionObserver {
   constructor(private readonly callback: IntersectionObserverCallback) {}
   observe() {
     visibilityObservers.add(this);
+    observeCount++;
   }
   disconnect() {
     visibilityObservers.delete(this);
@@ -52,7 +55,16 @@ class FakeIntersectionObserver {
 
 vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
 
-const scrollToEnd = () => visibilityObservers.forEach((observer) => observer.reportVisible());
+beforeEach(() => {
+  observeCount = 0;
+  observeCountAtLastScroll = 0;
+});
+
+async function scrollToEnd() {
+  await expect.poll(() => observeCount).toBeGreaterThan(observeCountAtLastScroll);
+  observeCountAtLastScroll = observeCount;
+  visibilityObservers.forEach((observer) => observer.reportVisible());
+}
 
 const plain = {
   rawText: null,
@@ -158,9 +170,9 @@ test("loads older transcripts when the end of the list scrolls into view", async
   render(<History />);
   expect(await screen.findAllByRole("listitem")).toHaveLength(50);
 
-  scrollToEnd();
+  await scrollToEnd();
   await expect.poll(() => screen.getAllByRole("listitem")).toHaveLength(100);
-  scrollToEnd();
+  await scrollToEnd();
   await expect.poll(() => screen.getAllByRole("listitem")).toHaveLength(120);
 
   expect(screen.getAllByRole("listitem")[119]).toHaveTextContent("Thought 1");
@@ -170,7 +182,7 @@ test("a new transcript keeps the older transcripts already loaded", async () => 
   const backend = mockBackend(numbered(60));
   render(<History />);
   await screen.findAllByRole("listitem");
-  scrollToEnd();
+  await scrollToEnd();
   await expect.poll(() => screen.getAllByRole("listitem")).toHaveLength(60);
 
   backend.rows = [{ ...entries[1], id: 61, text: "Fresh dictation" }, ...backend.rows];
