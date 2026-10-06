@@ -16,8 +16,10 @@ function mockBackend(entries: HistoryEntry[]) {
     (cmd, payload) => {
       calls.push({ cmd, payload });
       switch (cmd) {
-        case "list_history":
-          return backend.rows;
+        case "list_history": {
+          const { beforeId, limit } = payload as { beforeId: number | null; limit: number };
+          return backend.rows.filter((row) => beforeId === null || row.id < beforeId).slice(0, limit);
+        }
         case "delete_history":
           backend.rows = backend.rows.filter((row) => row.id !== (payload as { id: number }).id);
           return null;
@@ -29,6 +31,28 @@ function mockBackend(entries: HistoryEntry[]) {
   );
   return backend;
 }
+
+const visibilityObservers = new Set<FakeIntersectionObserver>();
+
+class FakeIntersectionObserver {
+  constructor(private readonly callback: IntersectionObserverCallback) {}
+  observe() {
+    visibilityObservers.add(this);
+  }
+  disconnect() {
+    visibilityObservers.delete(this);
+  }
+  reportVisible() {
+    this.callback(
+      [{ isIntersecting: true } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    );
+  }
+}
+
+vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+
+const scrollToEnd = () => visibilityObservers.forEach((observer) => observer.reportVisible());
 
 const plain = {
   rawText: null,
@@ -120,6 +144,40 @@ test("shows a new transcript when the backend announces a history change", async
   await emit(HISTORY_CHANGED);
 
   expect(await screen.findByText("Fresh dictation")).toBeInTheDocument();
+});
+
+const numbered = (count: number): HistoryEntry[] =>
+  Array.from({ length: count }, (_, index) => ({
+    ...entries[1],
+    id: count - index,
+    text: `Thought ${count - index}`,
+  }));
+
+test("loads older transcripts when the end of the list scrolls into view", async () => {
+  mockBackend(numbered(120));
+  render(<History />);
+  expect(await screen.findAllByRole("listitem")).toHaveLength(50);
+
+  scrollToEnd();
+  await expect.poll(() => screen.getAllByRole("listitem")).toHaveLength(100);
+  scrollToEnd();
+  await expect.poll(() => screen.getAllByRole("listitem")).toHaveLength(120);
+
+  expect(screen.getAllByRole("listitem")[119]).toHaveTextContent("Thought 1");
+});
+
+test("a new transcript keeps the older transcripts already loaded", async () => {
+  const backend = mockBackend(numbered(60));
+  render(<History />);
+  await screen.findAllByRole("listitem");
+  scrollToEnd();
+  await expect.poll(() => screen.getAllByRole("listitem")).toHaveLength(60);
+
+  backend.rows = [{ ...entries[1], id: 61, text: "Fresh dictation" }, ...backend.rows];
+  await emit(HISTORY_CHANGED);
+
+  await expect.poll(() => screen.getAllByRole("listitem")).toHaveLength(61);
+  expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("Fresh dictation");
 });
 
 test("explains that nothing has been dictated yet when history is empty", async () => {

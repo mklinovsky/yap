@@ -90,7 +90,8 @@ export const api = {
   setTransformApiKey: (key: string) => invoke<void>("set_transform_api_key", { key }),
   getOpenAtLogin: () => invoke<boolean>("get_open_at_login"),
   setOpenAtLogin: (enabled: boolean) => invoke<void>("set_open_at_login", { enabled }),
-  listHistory: () => invoke<HistoryEntry[]>("list_history"),
+  listHistory: (beforeId: number | null, limit: number) =>
+    invoke<HistoryEntry[]>("list_history", { beforeId, limit }),
   listInputDevices: () => invoke<InputDevice[]>("list_input_devices"),
   deleteHistory: (id: number) => invoke<void>("delete_history", { id }),
   getStats: (bucketStarts: number[], end: number) =>

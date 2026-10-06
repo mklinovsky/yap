@@ -84,6 +84,36 @@ fn history_lists_transcripts_newest_first() {
 }
 
 #[test]
+fn history_pages_continue_below_the_last_loaded_id() {
+    let store = Store::open_in_memory().unwrap();
+    let ids: Vec<i64> = (0..5)
+        .map(|n| {
+            store
+                .add_history(&NewHistoryEntry {
+                    text: format!("entry {n}"),
+                    duration_in_seconds: 1.0,
+                    size_in_bytes: 1,
+                    ..NewHistoryEntry::default()
+                })
+                .unwrap()
+                .id
+        })
+        .collect();
+    let page_ids = |before_id, limit| -> Vec<i64> {
+        store
+            .history_page(before_id, limit)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect()
+    };
+
+    assert_eq!(page_ids(None, 2), [ids[4], ids[3]]);
+    assert_eq!(page_ids(Some(ids[3]), 2), [ids[2], ids[1]]);
+    assert_eq!(page_ids(Some(ids[1]), 2), [ids[0]]);
+}
+
+#[test]
 fn deleted_history_entry_is_no_longer_listed() {
     let store = Store::open_in_memory().unwrap();
     let keep = store

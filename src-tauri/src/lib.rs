@@ -199,8 +199,15 @@ async fn set_open_at_login(app: AppHandle, enabled: bool) -> Result<(), String> 
 }
 
 #[tauri::command]
-async fn list_history(state: State<'_>) -> Result<Vec<HistoryEntry>, String> {
-    state.store.history().map_err(|e| e.to_string())
+async fn list_history(
+    state: State<'_>,
+    before_id: Option<i64>,
+    limit: u32,
+) -> Result<Vec<HistoryEntry>, String> {
+    state
+        .store
+        .history_page(before_id, limit)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

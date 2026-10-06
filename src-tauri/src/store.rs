@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -341,12 +341,23 @@ impl Store {
     }
 
     pub fn history(&self) -> Result<Vec<HistoryEntry>, StoreError> {
+        self.history_page(None, u32::MAX)
+    }
+
+    pub fn history_page(
+        &self,
+        before_id: Option<i64>,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>, StoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(&format!(
-            "SELECT {HISTORY_COLUMNS} FROM history ORDER BY id DESC"
+            "SELECT {HISTORY_COLUMNS} FROM history
+             WHERE ?1 IS NULL OR id < ?1
+             ORDER BY id DESC
+             LIMIT ?2"
         ))?;
         let entries = stmt
-            .query_map([], history_entry)?
+            .query_map(params![before_id, limit], history_entry)?
             .collect::<Result<_, _>>()?;
         Ok(entries)
     }
