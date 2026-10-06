@@ -36,7 +36,7 @@ Settings opens on first launch:
 
 ## Good to know
 
-- The transcript is pasted through the clipboard, which is not restored afterwards.
+- The transcript is pasted through the clipboard; the previous text or image is restored right after (files and rich-text formatting are not).
 - Audio is sent only to the configured endpoint. A failed recording is kept in memory for **Retry** (menu bar or Try it) until the next successful transcription or quit.
 - Settings, history and the API key (in plain text) are stored locally in `~/Library/Application Support/com.mklinovsky.yap/yap.db`.
 
