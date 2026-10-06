@@ -21,7 +21,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use dictation::{Apply, Clock, Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status, Timer};
 use paster::ClipboardPaster;
 use recorder::CpalRecorder;
-use store::{HistoryEntry, Settings, Store, Theme, Transformations};
+use store::{HistoryEntry, Settings, Stats, Store, Theme, Transformations};
 use transcriber::HttpTranscriber;
 use transformer::HttpTransformer;
 use tray::{dot, TrayFeedback, MENU_OPEN, MENU_PICK_PREFIX, MENU_QUIT, MENU_USE_ONCE};
@@ -209,6 +209,19 @@ async fn delete_history(state: State<'_>, id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_stats(state: State<'_>, bucket_starts: Vec<i64>, end: i64) -> Result<Stats, String> {
+    state
+        .store
+        .stats(&bucket_starts, end)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn first_history_at(state: State<'_>) -> Result<Option<i64>, String> {
+    state.store.first_history_at().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn copy_text(state: State<'_>, text: String) -> Result<(), String> {
     state.paster.copy(&text)
 }
@@ -393,6 +406,8 @@ pub fn run() {
             set_open_at_login,
             list_history,
             delete_history,
+            get_stats,
+            first_history_at,
             copy_text,
             list_input_devices,
             get_status,

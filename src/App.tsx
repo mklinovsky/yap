@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { History } from "./history/History";
 import { Settings } from "./settings/Settings";
+import { Stats } from "./stats/Stats";
 import { Transformations } from "./transformations/Transformations";
 import { TryIt } from "./try-it/TryIt";
 
-export type Section = "history" | "try" | "settings" | "transformations";
+export type Section = "history" | "stats" | "try" | "settings" | "transformations";
 
 const sections: { id: Section; title: string; icon: ReactNode }[] = [
   {
@@ -33,6 +34,15 @@ const sections: { id: Section; title: string; icon: ReactNode }[] = [
       <svg viewBox="0 0 20 20" aria-hidden="true">
         <circle cx="10" cy="10" r="7.25" />
         <path d="M10 5.5V10l3 2" />
+      </svg>
+    ),
+  },
+  {
+    id: "stats",
+    title: "Stats",
+    icon: (
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M3.25 16.75h13.5M5.75 16.75v-5M10 16.75v-10M14.25 16.75v-7.5" />
       </svg>
     ),
   },
@@ -77,6 +87,7 @@ export function App({ initialSection }: { initialSection: Section }) {
         </header>
         <div className="content-body" data-section={section}>
           {section === "history" && <History />}
+          {section === "stats" && <Stats />}
           {section === "try" && <TryIt />}
           {section === "settings" && <Settings />}
           {section === "transformations" && <Transformations />}

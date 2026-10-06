@@ -199,6 +199,23 @@ pub struct NewHistoryEntry {
     pub transform_time_in_seconds: Option<f64>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Usage {
+    pub dictations: i64,
+    pub duration_in_seconds: f64,
+    pub words: i64,
+    pub transcription_cost_in_usd: Option<f64>,
+    pub transformation_cost_in_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stats {
+    pub total: Usage,
+    pub buckets: Vec<Usage>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error(transparent)]
@@ -430,6 +447,56 @@ impl Store {
         self.conn()
             .execute("DELETE FROM history WHERE id = ?1", [id])?;
         Ok(())
+    }
+
+    pub fn stats(&self, bucket_starts: &[i64], end: i64) -> Result<Stats, StoreError> {
+        let mut stats = Stats {
+            total: Usage::default(),
+            buckets: vec![Usage::default(); bucket_starts.len()],
+        };
+        let Some(&start) = bucket_starts.first() else {
+            return Ok(stats);
+        };
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT created_at, text, duration, cost, transform_cost FROM history
+             WHERE created_at >= ?1 AND created_at < ?2",
+        )?;
+        let mut rows = stmt.query([start, end])?;
+        while let Some(row) = rows.next()? {
+            let created_at: i64 = row.get(0)?;
+            let text: String = row.get(1)?;
+            let duration_in_seconds: Option<f64> = row.get(2)?;
+            let transcription_cost_in_usd: Option<f64> = row.get(3)?;
+            let transformation_cost_in_usd: Option<f64> = row.get(4)?;
+            let bucket = bucket_starts.partition_point(|&s| s <= created_at) - 1;
+            for usage in [&mut stats.total, &mut stats.buckets[bucket]] {
+                usage.dictations += 1;
+                usage.duration_in_seconds += duration_in_seconds.unwrap_or(0.0);
+                usage.words += text.split_whitespace().count() as i64;
+                add_cost(
+                    &mut usage.transcription_cost_in_usd,
+                    transcription_cost_in_usd,
+                );
+                add_cost(
+                    &mut usage.transformation_cost_in_usd,
+                    transformation_cost_in_usd,
+                );
+            }
+        }
+        Ok(stats)
+    }
+
+    pub fn first_history_at(&self) -> Result<Option<i64>, StoreError> {
+        Ok(self
+            .conn()
+            .query_row("SELECT MIN(created_at) FROM history", [], |row| row.get(0))?)
+    }
+}
+
+fn add_cost(sum: &mut Option<f64>, cost: Option<f64>) {
+    if let Some(cost) = cost {
+        *sum = Some(sum.unwrap_or(0.0) + cost);
     }
 }
 

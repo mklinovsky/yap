@@ -140,36 +140,6 @@ test("shows how long each recording was and what it cost", async () => {
   expect(within(older).queryByText(/\$| s/)).toBeNull();
 });
 
-test("totals the cost of the listed transcripts", async () => {
-  mockBackend([
-    ...entries,
-    {
-      id: 0,
-      text: "Earlier thought",
-      createdAt: Date.UTC(2026, 9, 5, 11, 0),
-      costInUsd: 0.003,
-      durationInSeconds: null,
-      sizeInBytes: null,
-      encodeTimeInSeconds: null,
-      transcribeTimeInSeconds: null,
-      ...plain,
-    },
-  ]);
-
-  render(<History />);
-
-  expect(await screen.findByText("Total $0.0042")).toBeInTheDocument();
-});
-
-test("shows no total when no transcript has a cost", async () => {
-  mockBackend(entries.map((entry) => ({ ...entry, costInUsd: null })));
-
-  render(<History />);
-
-  await screen.findByText("Second thought");
-  expect(screen.queryByText(/Total/)).toBeNull();
-});
-
 test("details show the upload size and how long encoding and the request took", async () => {
   const user = userEvent.setup();
   mockBackend(entries);
@@ -264,14 +234,6 @@ test("a failed transformation is marked and its details carry the error", async 
   await user.click(within(card).getByRole("button", { name: "Details" }));
 
   expect(detail(card, "Error")).toBe("Transformation failed: HTTP 500: boom");
-});
-
-test("the total includes transformation costs", async () => {
-  mockBackend([transformed, entries[1]]);
-
-  render(<History />);
-
-  expect(await screen.findByText("Total $0.0019")).toBeInTheDocument();
 });
 
 test("a cost too small to show at four decimals is shown as below a hundredth of a cent", async () => {

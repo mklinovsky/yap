@@ -1,5 +1,8 @@
+use std::path::{Path, PathBuf};
+
 use yap_lib::store::{
-    Mode, NewHistoryEntry, Settings, Store, Theme, Transformation, Transformations, TrayState,
+    Mode, NewHistoryEntry, Settings, Stats, Store, Theme, Transformation, Transformations,
+    TrayState, Usage,
 };
 
 #[test]
@@ -667,4 +670,110 @@ fn user_message_puts_the_transcript_into_the_template() {
             "hello world".to_string()
         )
     );
+}
+
+fn temp_db(name: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!("yap-{name}-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    path
+}
+
+fn add_history_at(path: &Path, store: &Store, created_at: i64, entry: NewHistoryEntry) {
+    let id = store.add_history(&entry).unwrap().id;
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .execute(
+            "UPDATE history SET created_at = ?1 WHERE id = ?2",
+            [created_at, id],
+        )
+        .unwrap();
+}
+
+#[test]
+fn stats_sum_usage_per_bucket_and_over_the_whole_range() {
+    let path = temp_db("stats");
+    let store = Store::open(&path).unwrap();
+    let entry = |text: &str, duration_in_seconds: f64| NewHistoryEntry {
+        text: text.into(),
+        duration_in_seconds,
+        ..NewHistoryEntry::default()
+    };
+    add_history_at(&path, &store, 999, entry("before the range", 9.0));
+    add_history_at(
+        &path,
+        &store,
+        1000,
+        NewHistoryEntry {
+            cost_in_usd: Some(0.25),
+            ..entry("one two three", 2.0)
+        },
+    );
+    add_history_at(
+        &path,
+        &store,
+        1999,
+        NewHistoryEntry {
+            transform_cost_in_usd: Some(0.125),
+            ..entry("four", 1.0)
+        },
+    );
+    add_history_at(
+        &path,
+        &store,
+        3500,
+        NewHistoryEntry {
+            cost_in_usd: Some(0.5),
+            ..entry("  five   six\nseven ", 3.5)
+        },
+    );
+    add_history_at(&path, &store, 4000, entry("at the end", 9.0));
+
+    let stats = store.stats(&[1000, 2000, 3000], 4000).unwrap();
+    drop(store);
+    std::fs::remove_file(&path).unwrap();
+
+    assert_eq!(
+        stats,
+        Stats {
+            total: Usage {
+                dictations: 3,
+                duration_in_seconds: 6.5,
+                words: 7,
+                transcription_cost_in_usd: Some(0.75),
+                transformation_cost_in_usd: Some(0.125),
+            },
+            buckets: vec![
+                Usage {
+                    dictations: 2,
+                    duration_in_seconds: 3.0,
+                    words: 4,
+                    transcription_cost_in_usd: Some(0.25),
+                    transformation_cost_in_usd: Some(0.125),
+                },
+                Usage::default(),
+                Usage {
+                    dictations: 1,
+                    duration_in_seconds: 3.5,
+                    words: 3,
+                    transcription_cost_in_usd: Some(0.5),
+                    transformation_cost_in_usd: None,
+                },
+            ],
+        }
+    );
+}
+
+#[test]
+fn first_history_at_is_the_oldest_entry_time() {
+    let path = temp_db("first");
+    let store = Store::open(&path).unwrap();
+    let empty = store.first_history_at().unwrap();
+    add_history_at(&path, &store, 3000, NewHistoryEntry::default());
+    add_history_at(&path, &store, 1000, NewHistoryEntry::default());
+
+    let first = store.first_history_at().unwrap();
+    drop(store);
+    std::fs::remove_file(&path).unwrap();
+
+    assert_eq!((empty, first), (None, Some(1000)));
 }

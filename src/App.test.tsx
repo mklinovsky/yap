@@ -57,13 +57,19 @@ test("opens on the requested section and switches from the sidebar", async () =>
 });
 
 
-test("lists Transformations between Settings and History", async () => {
+test("lists the sections in order", async () => {
   const user = userEvent.setup();
   mockBackend();
   render(<App initialSection="settings" />);
 
   const nav = screen.getAllByRole("button").filter((b) => b.classList.contains("nav-item"));
-  expect(nav.map((b) => b.textContent)).toEqual(["Settings", "Transformations", "History", "Try it"]);
+  expect(nav.map((b) => b.textContent)).toEqual([
+    "Settings",
+    "Transformations",
+    "History",
+    "Stats",
+    "Try it",
+  ]);
   await user.click(screen.getByRole("button", { name: "Transformations" }));
 
   expect(

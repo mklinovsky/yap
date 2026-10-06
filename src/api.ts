@@ -55,6 +55,19 @@ export interface HistoryEntry {
   transformTimeInSeconds: number | null;
 }
 
+export interface Usage {
+  dictations: number;
+  durationInSeconds: number;
+  words: number;
+  transcriptionCostInUsd: number | null;
+  transformationCostInUsd: number | null;
+}
+
+export interface Stats {
+  total: Usage;
+  buckets: Usage[];
+}
+
 export type Status =
   | { state: "idle" }
   | { state: "recording" }
@@ -80,6 +93,9 @@ export const api = {
   listHistory: () => invoke<HistoryEntry[]>("list_history"),
   listInputDevices: () => invoke<InputDevice[]>("list_input_devices"),
   deleteHistory: (id: number) => invoke<void>("delete_history", { id }),
+  getStats: (bucketStarts: number[], end: number) =>
+    invoke<Stats>("get_stats", { bucketStarts, end }),
+  firstHistoryAt: () => invoke<number | null>("first_history_at"),
   copyText: (text: string) => invoke<void>("copy_text", { text }),
   getStatus: () => invoke<Status>("get_status"),
   toggleRecording: () => invoke<void>("toggle_recording"),

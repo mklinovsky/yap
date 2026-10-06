@@ -1,7 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { api, HISTORY_CHANGED, type HistoryEntry } from "../api";
-import { formatCost, totalCostInUsd } from "./format";
 import { HistoryCard } from "./HistoryCard";
 
 export function History() {
@@ -34,18 +33,11 @@ export function History() {
     );
   }
 
-  const costs = entries.flatMap((entry) => totalCostInUsd(entry) ?? []);
-
   return (
-    <>
-      {costs.length > 0 && (
-        <p className="history-total">Total {formatCost(costs.reduce((sum, cost) => sum + cost, 0))}</p>
-      )}
-      <ul className="history">
-        {entries.map((entry) => (
-          <HistoryCard key={entry.id} entry={entry} onDelete={() => remove(entry.id)} />
-        ))}
-      </ul>
-    </>
+    <ul className="history">
+      {entries.map((entry) => (
+        <HistoryCard key={entry.id} entry={entry} onDelete={() => remove(entry.id)} />
+      ))}
+    </ul>
   );
 }
