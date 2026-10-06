@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use crate::audio::encode_flac;
 use crate::store::{Mode, Store};
@@ -71,6 +72,11 @@ pub trait Spawner: Send + Sync {
     fn spawn(&self, job: Box<dyn FnOnce() + Send>);
 }
 
+pub trait Timer: Send + Sync {
+    /// Runs `job` after `delay` on the thread that calls `handle` and `toggle`.
+    fn after(&self, delay: Duration, job: Box<dyn FnOnce() + Send>);
+}
+
 pub struct Deps {
     pub store: Arc<Store>,
     pub recorder: Arc<dyn Recorder>,
@@ -79,12 +85,15 @@ pub struct Deps {
     pub feedback: Arc<dyn Feedback>,
     pub secrets: Arc<dyn Secrets>,
     pub spawner: Arc<dyn Spawner>,
+    pub timer: Arc<dyn Timer>,
 }
 
 #[derive(Clone)]
 pub struct Dictation {
     deps: Arc<Deps>,
     status: Arc<Mutex<Status>>,
+    /// Counts recordings so a max-length timer only finishes the recording that scheduled it.
+    recordings: Arc<Mutex<u64>>,
 }
 
 impl Dictation {
@@ -92,6 +101,7 @@ impl Dictation {
         Self {
             deps: Arc::new(deps),
             status: Arc::new(Mutex::new(Status::Idle)),
+            recordings: Arc::default(),
         }
     }
 
@@ -138,14 +148,33 @@ impl Dictation {
             ));
             return;
         }
-        let device = self.deps.store.settings().unwrap_or_default().input_device;
-        match self.deps.recorder.start(device.as_deref()) {
+        let settings = self.deps.store.settings().unwrap_or_default();
+        match self.deps.recorder.start(settings.input_device.as_deref()) {
             Ok(()) => {
                 self.set_status(Status::Recording);
                 self.cue(Cue::Start);
+                self.finish_after(Duration::from_secs(u64::from(settings.max_minutes) * 60));
             }
             Err(error) => self.set_status(Status::Error(error)),
         }
+    }
+
+    fn finish_after(&self, delay: Duration) {
+        let recording = {
+            let mut recordings = self.recordings.lock().unwrap_or_else(|e| e.into_inner());
+            *recordings += 1;
+            *recordings
+        };
+        let this = self.clone();
+        self.deps.timer.after(
+            delay,
+            Box::new(move || {
+                let current = *this.recordings.lock().unwrap_or_else(|e| e.into_inner());
+                if current == recording && this.status() == Status::Recording {
+                    this.finish();
+                }
+            }),
+        );
     }
 
     fn finish(&self) {

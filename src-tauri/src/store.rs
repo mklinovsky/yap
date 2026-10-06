@@ -24,6 +24,12 @@ pub struct Settings {
     pub shortcut: String,
     pub mode: Mode,
     pub sounds: bool,
+    #[serde(default = "default_max_minutes")]
+    pub max_minutes: u32,
+}
+
+fn default_max_minutes() -> u32 {
+    5
 }
 
 impl Default for Settings {
@@ -37,6 +43,7 @@ impl Default for Settings {
             shortcut: "Alt+Space".into(),
             mode: Mode::Hold,
             sounds: true,
+            max_minutes: default_max_minutes(),
         }
     }
 }

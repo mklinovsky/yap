@@ -14,6 +14,7 @@ const stored: SettingsData = {
   shortcut: "Ctrl+Shift+D",
   mode: "toggle",
   sounds: false,
+  maxMinutes: 5,
 };
 
 let preview: string | null;
@@ -227,6 +228,30 @@ test("picks the input device, with the system default listed first", async () =>
     .filter((c) => c.cmd === "save_settings")
     .map((c) => (c.payload as { settings: SettingsData }).settings.inputDevice);
   expect(saved).toEqual(["coreaudio:USB", null]);
+});
+
+test("picks the max recording length from minute presets", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Settings />);
+
+  const maxLength = await screen.findByLabelText("Max length");
+  expect(maxLength).toHaveDisplayValue("5 min");
+  expect(within(maxLength).getAllByRole("option").map((o) => o.textContent)).toEqual([
+    "1 min",
+    "2 min",
+    "5 min",
+    "10 min",
+    "15 min",
+    "20 min",
+  ]);
+  await user.selectOptions(maxLength, "10 min");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(await screen.findByText("Saved")).toBeInTheDocument();
+  expect(calls.find((c) => c.cmd === "save_settings")?.payload).toEqual({
+    settings: { ...stored, maxMinutes: 10 },
+  });
 });
 
 test("Save is enabled only while there are unsaved changes", async () => {

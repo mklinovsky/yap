@@ -15,6 +15,7 @@ fn fresh_store_returns_default_settings() {
             shortcut: "Alt+Space".into(),
             mode: Mode::Hold,
             sounds: true,
+            max_minutes: 5,
         }
     );
 }
@@ -32,6 +33,7 @@ fn saved_settings_survive_reopening_the_database() {
         shortcut: "Ctrl+Shift+D".into(),
         mode: Mode::Toggle,
         sounds: false,
+        max_minutes: 15,
     };
 
     Store::open(&path)
@@ -91,6 +93,25 @@ fn settings_saved_before_keywords_existed_still_load() {
         (settings.model.as_str(), settings.keywords),
         ("whisper-large-v3", vec![])
     );
+}
+
+#[test]
+fn settings_saved_before_max_length_existed_default_to_five_minutes() {
+    let path = std::env::temp_dir().join(format!("yap-max-length-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    drop(Store::open(&path).unwrap());
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute(
+            "INSERT INTO settings (id, json) VALUES (1, ?1)",
+            [r#"{"baseUrl":"https://api.openai.com/v1","model":"gpt-transcribe","languages":[],"keywords":[],"inputDevice":null,"shortcut":"Alt+Space","mode":"toggle","sounds":true}"#],
+        )
+        .unwrap();
+
+    let settings = Store::open(&path).unwrap().settings().unwrap();
+    std::fs::remove_file(&path).unwrap();
+
+    assert_eq!(settings.max_minutes, 5);
 }
 
 #[test]

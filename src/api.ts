@@ -11,6 +11,7 @@ export interface Settings {
   shortcut: string;
   mode: Mode;
   sounds: boolean;
+  maxMinutes: number;
 }
 
 export interface InputDevice {
