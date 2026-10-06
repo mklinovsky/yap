@@ -1,4 +1,6 @@
-use yap_lib::store::{Mode, Settings, Store};
+use yap_lib::store::{
+    Mode, NewHistoryEntry, Settings, Store, Transformation, Transformations, TrayState,
+};
 
 #[test]
 fn fresh_store_returns_default_settings() {
@@ -50,8 +52,22 @@ fn saved_settings_survive_reopening_the_database() {
 fn history_lists_transcripts_newest_first() {
     let store = Store::open_in_memory().unwrap();
 
-    store.add_history("first", None, 1.0, 1, 0.0, 0.0).unwrap();
-    store.add_history("second", None, 1.0, 1, 0.0, 0.0).unwrap();
+    store
+        .add_history(&NewHistoryEntry {
+            text: "first".into(),
+            duration_in_seconds: 1.0,
+            size_in_bytes: 1,
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
+    store
+        .add_history(&NewHistoryEntry {
+            text: "second".into(),
+            duration_in_seconds: 1.0,
+            size_in_bytes: 1,
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
 
     let texts: Vec<String> = store
         .history()
@@ -65,8 +81,22 @@ fn history_lists_transcripts_newest_first() {
 #[test]
 fn deleted_history_entry_is_no_longer_listed() {
     let store = Store::open_in_memory().unwrap();
-    let keep = store.add_history("keep", None, 1.0, 1, 0.0, 0.0).unwrap();
-    let drop = store.add_history("drop", None, 1.0, 1, 0.0, 0.0).unwrap();
+    let keep = store
+        .add_history(&NewHistoryEntry {
+            text: "keep".into(),
+            duration_in_seconds: 1.0,
+            size_in_bytes: 1,
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
+    let drop = store
+        .add_history(&NewHistoryEntry {
+            text: "drop".into(),
+            duration_in_seconds: 1.0,
+            size_in_bytes: 1,
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
 
     store.delete_history(drop.id).unwrap();
 
@@ -179,17 +209,28 @@ fn history_entry_keeps_its_cost() {
     let store = Store::open_in_memory().unwrap();
 
     store
-        .add_history("priced", Some(0.0042), 1.0, 1, 0.0, 0.0)
+        .add_history(&NewHistoryEntry {
+            text: "priced".into(),
+            cost_in_usd: Some(0.0042),
+            duration_in_seconds: 1.0,
+            size_in_bytes: 1,
+            ..NewHistoryEntry::default()
+        })
         .unwrap();
     store
-        .add_history("unpriced", None, 1.0, 1, 0.0, 0.0)
+        .add_history(&NewHistoryEntry {
+            text: "unpriced".into(),
+            duration_in_seconds: 1.0,
+            size_in_bytes: 1,
+            ..NewHistoryEntry::default()
+        })
         .unwrap();
 
     let costs: Vec<Option<f64>> = store
         .history()
         .unwrap()
         .into_iter()
-        .map(|entry| entry.cost)
+        .map(|entry| entry.cost_in_usd)
         .collect();
     assert_eq!(costs, [None, Some(0.0042)]);
 }
@@ -199,11 +240,19 @@ fn history_entry_keeps_its_recording_duration_and_upload_size() {
     let store = Store::open_in_memory().unwrap();
 
     store
-        .add_history("timed", None, 12.5, 204_800, 0.0, 0.0)
+        .add_history(&NewHistoryEntry {
+            text: "timed".into(),
+            duration_in_seconds: 12.5,
+            size_in_bytes: 204_800,
+            ..NewHistoryEntry::default()
+        })
         .unwrap();
 
     let entry = store.history().unwrap().remove(0);
-    assert_eq!((entry.duration, entry.size), (Some(12.5), Some(204_800)));
+    assert_eq!(
+        (entry.duration_in_seconds, entry.size_in_bytes),
+        (Some(12.5), Some(204_800))
+    );
 }
 
 #[test]
@@ -211,12 +260,22 @@ fn history_entry_keeps_its_encode_and_transcribe_times() {
     let store = Store::open_in_memory().unwrap();
 
     store
-        .add_history("timed", None, 12.5, 204_800, 0.03, 4.2)
+        .add_history(&NewHistoryEntry {
+            text: "timed".into(),
+            duration_in_seconds: 12.5,
+            size_in_bytes: 204_800,
+            encode_time_in_seconds: 0.03,
+            transcribe_time_in_seconds: 4.2,
+            ..NewHistoryEntry::default()
+        })
         .unwrap();
 
     let entry = store.history().unwrap().remove(0);
     assert_eq!(
-        (entry.encode_time, entry.transcribe_time),
+        (
+            entry.encode_time_in_seconds,
+            entry.transcribe_time_in_seconds
+        ),
         (Some(0.03), Some(4.2))
     );
 }
@@ -239,7 +298,15 @@ fn history_from_older_versions_gains_missing_columns() {
 
     let store = Store::open(&path).unwrap();
     store
-        .add_history("new", Some(0.5), 2.0, 64_000, 0.03, 4.2)
+        .add_history(&NewHistoryEntry {
+            text: "new".into(),
+            cost_in_usd: Some(0.5),
+            duration_in_seconds: 2.0,
+            size_in_bytes: 64_000,
+            encode_time_in_seconds: 0.03,
+            transcribe_time_in_seconds: 4.2,
+            ..NewHistoryEntry::default()
+        })
         .unwrap();
     let entries: Vec<_> = store
         .history()
@@ -248,11 +315,11 @@ fn history_from_older_versions_gains_missing_columns() {
         .map(|entry| {
             (
                 entry.text,
-                entry.cost,
-                entry.duration,
-                entry.size,
-                entry.encode_time,
-                entry.transcribe_time,
+                entry.cost_in_usd,
+                entry.duration_in_seconds,
+                entry.size_in_bytes,
+                entry.encode_time_in_seconds,
+                entry.transcribe_time_in_seconds,
             )
         })
         .collect();
@@ -272,5 +339,311 @@ fn history_from_older_versions_gains_missing_columns() {
             ),
             ("old".into(), None, None, None, None, None)
         ]
+    );
+}
+
+fn transformation(id: &str, name: &str) -> Transformation {
+    Transformation {
+        id: id.into(),
+        name: name.into(),
+        system_prompt: String::new(),
+        user_template: String::new(),
+        model: None,
+        shortcut: None,
+    }
+}
+
+#[test]
+fn fresh_store_has_transformations_disabled() {
+    let store = Store::open_in_memory().unwrap();
+
+    assert_eq!(
+        store.transformations().unwrap(),
+        Transformations {
+            enabled: false,
+            base_url: None,
+            reuse_api_key: true,
+            default_model: "gpt-6-luna".into(),
+            items: vec![],
+        }
+    );
+}
+
+#[test]
+fn saved_transformations_survive_reopening_the_database() {
+    let path = std::env::temp_dir().join(format!("yap-transformations-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let transformations = Transformations {
+        enabled: true,
+        base_url: Some("https://llm.example.com/v1".into()),
+        reuse_api_key: false,
+        default_model: "gpt-5".into(),
+        items: vec![Transformation {
+            system_prompt: "Summarize.".into(),
+            user_template: "Text: {{transcript}}".into(),
+            model: Some("gpt-5-nano".into()),
+            shortcut: Some("Ctrl+Alt+S".into()),
+            ..transformation("t1", "Summary")
+        }],
+    };
+
+    Store::open(&path)
+        .unwrap()
+        .save_transformations(&transformations)
+        .unwrap();
+    let reopened = Store::open(&path).unwrap().transformations().unwrap();
+    std::fs::remove_file(&path).unwrap();
+
+    assert_eq!(reopened, transformations);
+}
+
+#[test]
+fn tray_state_defaults_to_use_once_with_nothing_selected_and_round_trips() {
+    let store = Store::open_in_memory().unwrap();
+    let fresh = store.tray_state().unwrap();
+
+    store
+        .save_tray_state(&TrayState {
+            selected: Some("t1".into()),
+            use_once: false,
+        })
+        .unwrap();
+
+    assert_eq!(
+        (fresh, store.tray_state().unwrap()),
+        (
+            TrayState {
+                selected: None,
+                use_once: true
+            },
+            TrayState {
+                selected: Some("t1".into()),
+                use_once: false
+            }
+        )
+    );
+}
+
+#[test]
+fn transformation_api_key_is_stored_apart_from_the_transcription_key() {
+    let store = Store::open_in_memory().unwrap();
+    store.set_api_key("sk-transcription").unwrap();
+
+    store.set_transform_api_key("sk-llm-key-1234567").unwrap();
+
+    assert_eq!(
+        (
+            store.api_key().unwrap().as_deref(),
+            store.transform_api_key().unwrap().as_deref(),
+            store.transform_api_key_preview().unwrap().as_deref()
+        ),
+        (
+            Some("sk-transcription"),
+            Some("sk-llm-key-1234567"),
+            Some("sk-l••••••••")
+        )
+    );
+}
+
+#[test]
+fn saving_an_empty_transformation_api_key_removes_it() {
+    let store = Store::open_in_memory().unwrap();
+    store.set_transform_api_key("sk-llm").unwrap();
+
+    store.set_transform_api_key("").unwrap();
+
+    assert_eq!(store.transform_api_key().unwrap(), None);
+}
+
+#[test]
+fn history_entry_keeps_its_transformation_details() {
+    let store = Store::open_in_memory().unwrap();
+
+    store
+        .add_history(&NewHistoryEntry {
+            text: "Hello, world.".into(),
+            raw_text: Some("hello world".into()),
+            transformation_name: Some("Fix grammar".into()),
+            transform_cost_in_usd: Some(0.0007),
+            transform_time_in_seconds: Some(1.25),
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
+    store
+        .add_history(&NewHistoryEntry {
+            text: "hello again".into(),
+            transformation_name: Some("Translate".into()),
+            transform_error: Some("HTTP 500: boom".into()),
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
+
+    let entries: Vec<_> = store
+        .history()
+        .unwrap()
+        .into_iter()
+        .map(|e| {
+            (
+                e.raw_text,
+                e.transformation_name,
+                e.transform_error,
+                e.transform_cost_in_usd,
+                e.transform_time_in_seconds,
+            )
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (
+                None,
+                Some("Translate".into()),
+                Some("HTTP 500: boom".into()),
+                None,
+                None
+            ),
+            (
+                Some("hello world".into()),
+                Some("Fix grammar".into()),
+                None,
+                Some(0.0007),
+                Some(1.25)
+            ),
+        ]
+    );
+}
+
+#[test]
+fn history_from_older_versions_gains_transformation_columns() {
+    let path = std::env::temp_dir().join(format!("yap-history-tf-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE history (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 text TEXT NOT NULL,
+                 created_at INTEGER NOT NULL
+             );
+             INSERT INTO history (text, created_at) VALUES ('old', 1);",
+        )
+        .unwrap();
+
+    let store = Store::open(&path).unwrap();
+    let old = store.history().unwrap().remove(0);
+    drop(store);
+    std::fs::remove_file(&path).unwrap();
+
+    assert_eq!(
+        (
+            old.raw_text,
+            old.transformation_name,
+            old.transform_cost_in_usd
+        ),
+        (None, None, None)
+    );
+}
+
+#[test]
+fn valid_transformations_pass_validation() {
+    let transformations = Transformations {
+        items: vec![
+            Transformation {
+                user_template: "Fix: {{transcript}}".into(),
+                shortcut: Some("Ctrl+Alt+G".into()),
+                ..transformation("t1", "Fix grammar")
+            },
+            transformation("t2", "Bullet points"),
+        ],
+        ..Transformations::default()
+    };
+
+    assert_eq!(transformations.validate("Shift+Super+Semicolon"), Ok(()));
+}
+
+#[test]
+fn validation_rejects_a_user_message_without_the_placeholder() {
+    let transformations = Transformations {
+        items: vec![Transformation {
+            user_template: "Fix this".into(),
+            ..transformation("t1", "Fix grammar")
+        }],
+        ..Transformations::default()
+    };
+
+    assert_eq!(
+        transformations.validate("Shift+Super+Semicolon"),
+        Err("\"Fix grammar\": the user message must contain {{transcript}}.".into())
+    );
+}
+
+#[test]
+fn validation_rejects_a_transformation_without_a_name() {
+    let transformations = Transformations {
+        items: vec![transformation("t1", "  ")],
+        ..Transformations::default()
+    };
+
+    assert_eq!(
+        transformations.validate("Shift+Super+Semicolon"),
+        Err("Every transformation needs a name.".into())
+    );
+}
+
+#[test]
+fn validation_rejects_the_dictation_shortcut() {
+    let transformations = Transformations {
+        items: vec![Transformation {
+            shortcut: Some("Shift+Super+Semicolon".into()),
+            ..transformation("t1", "Fix grammar")
+        }],
+        ..Transformations::default()
+    };
+
+    assert_eq!(
+        transformations.validate("Shift+Super+Semicolon"),
+        Err("\"Fix grammar\": the shortcut is already the dictation shortcut.".into())
+    );
+}
+
+#[test]
+fn validation_rejects_two_transformations_with_the_same_shortcut() {
+    let transformations = Transformations {
+        items: vec![
+            Transformation {
+                shortcut: Some("Ctrl+Alt+G".into()),
+                ..transformation("t1", "Fix grammar")
+            },
+            Transformation {
+                shortcut: Some("Ctrl+Alt+G".into()),
+                ..transformation("t2", "Translate")
+            },
+        ],
+        ..Transformations::default()
+    };
+
+    assert_eq!(
+        transformations.validate("Shift+Super+Semicolon"),
+        Err("\"Fix grammar\" and \"Translate\" use the same shortcut.".into())
+    );
+}
+
+#[test]
+fn user_message_puts_the_transcript_into_the_template() {
+    let templated = Transformation {
+        user_template: "Rewrite: {{transcript}}".into(),
+        ..transformation("t1", "Rewrite")
+    };
+    let empty = transformation("t2", "Plain");
+
+    assert_eq!(
+        (
+            templated.user_message("hello world"),
+            empty.user_message("hello world")
+        ),
+        (
+            "Rewrite: hello world".to_string(),
+            "hello world".to_string()
+        )
     );
 }

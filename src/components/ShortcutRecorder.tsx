@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api } from "../api";
 
 const MODIFIER_KEYS = new Set(["Control", "Alt", "Shift", "Meta"]);
 const MAC = typeof navigator !== "undefined" && /Mac/.test(navigator.userAgent);
@@ -33,9 +33,11 @@ export function formatShortcut(shortcut: string) {
 }
 
 export function ShortcutRecorder({
+  id,
   value,
   onChange,
 }: {
+  id?: string;
   value: string;
   onChange: (shortcut: string) => void;
 }) {
@@ -82,11 +84,12 @@ export function ShortcutRecorder({
   return (
     <button
       ref={button}
+      id={id}
       type="button"
       className={recording ? "recorder recording" : "recorder"}
       onClick={() => setRecording(!recording)}
     >
-      {recording ? "Press a shortcut…" : formatShortcut(value)}
+      {recording ? "Press a shortcut…" : value ? formatShortcut(value) : "None"}
     </button>
   );
 }

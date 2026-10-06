@@ -1,22 +1,140 @@
 use std::f32::consts::TAU;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
 use tauri::image::Image;
-use tauri::menu::MenuItem;
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIcon;
 use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::dictation::{Cue, Feedback, Status};
+use crate::store::{Store, TrayState};
 
 pub const HISTORY_CHANGED: &str = "history-changed";
 pub const STATUS_CHANGED: &str = "status-changed";
 
+pub const MENU_OPEN: &str = "open";
+pub const MENU_QUIT: &str = "quit";
+pub const MENU_USE_ONCE: &str = "use-once";
+pub const MENU_PICK_PREFIX: &str = "pick:";
+
+struct TrayMenu<R: Runtime> {
+    status_item: MenuItem<R>,
+    picks: Vec<(Option<String>, CheckMenuItem<R>)>,
+    use_once: Option<CheckMenuItem<R>>,
+    label: String,
+    state: TrayState,
+}
+
 pub struct TrayFeedback<R: Runtime> {
-    pub app: AppHandle<R>,
-    pub tray: TrayIcon<R>,
-    pub status_item: MenuItem<R>,
+    app: AppHandle<R>,
+    tray: TrayIcon<R>,
+    store: Arc<Store>,
+    menu: Mutex<TrayMenu<R>>,
+}
+
+impl<R: Runtime> TrayFeedback<R> {
+    pub fn new(app: AppHandle<R>, tray: TrayIcon<R>, store: Arc<Store>) -> tauri::Result<Self> {
+        let state = store.tray_state().unwrap_or_default();
+        let menu = TrayMenu {
+            status_item: MenuItem::new(&app, "Idle", false, None::<&str>)?,
+            picks: Vec::new(),
+            use_once: None,
+            label: "Idle".into(),
+            state,
+        };
+        let feedback = Self {
+            app,
+            tray,
+            store,
+            menu: Mutex::new(menu),
+        };
+        feedback.rebuild()?;
+        Ok(feedback)
+    }
+
+    pub fn rebuild(&self) -> tauri::Result<()> {
+        let app = &self.app;
+        let mut menu = self.menu.lock().unwrap_or_else(|e| e.into_inner());
+        let transformations = self.store.transformations().unwrap_or_default();
+        let status_item = MenuItem::new(app, &menu.label, false, None::<&str>)?;
+        let mut picks = Vec::new();
+        let mut use_once = None;
+        let built = Menu::new(app)?;
+        built.append(&status_item)?;
+        built.append(&PredefinedMenuItem::separator(app)?)?;
+        if transformations.enabled {
+            built.append(&MenuItem::new(app, "Transformation", false, None::<&str>)?)?;
+            let choices = std::iter::once((None, "None".to_string())).chain(
+                transformations
+                    .items
+                    .iter()
+                    .map(|item| (Some(item.id.clone()), item.name.clone())),
+            );
+            for (id, name) in choices {
+                let item = CheckMenuItem::with_id(
+                    app,
+                    format!("{MENU_PICK_PREFIX}{}", id.as_deref().unwrap_or_default()),
+                    name,
+                    true,
+                    false,
+                    None::<&str>,
+                )?;
+                built.append(&item)?;
+                picks.push((id, item));
+            }
+            built.append(&PredefinedMenuItem::separator(app)?)?;
+            let item =
+                CheckMenuItem::with_id(app, MENU_USE_ONCE, "Use once", true, false, None::<&str>)?;
+            built.append(&item)?;
+            use_once = Some(item);
+            built.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+        built.append(&MenuItem::with_id(
+            app,
+            MENU_OPEN,
+            "Open yap…",
+            true,
+            None::<&str>,
+        )?)?;
+        built.append(&PredefinedMenuItem::separator(app)?)?;
+        built.append(&MenuItem::with_id(
+            app,
+            MENU_QUIT,
+            "Quit yap",
+            true,
+            None::<&str>,
+        )?)?;
+        self.tray.set_menu(Some(built))?;
+        menu.status_item = status_item;
+        menu.picks = picks;
+        menu.use_once = use_once;
+        self.refresh(&menu);
+        Ok(())
+    }
+
+    fn refresh(&self, menu: &TrayMenu<R>) {
+        let known = menu
+            .picks
+            .iter()
+            .any(|(id, _)| id.is_some() && *id == menu.state.selected);
+        let selected = if known { &menu.state.selected } else { &None };
+        let mut label = menu.label.clone();
+        for (id, item) in &menu.picks {
+            let checked = id == selected;
+            let _ = item.set_checked(checked);
+            if checked && id.is_some() {
+                label = format!("{label} · {}", item.text().unwrap_or_default());
+            }
+        }
+        if let Some(item) = &menu.use_once {
+            let _ = item.set_checked(menu.state.use_once);
+        }
+        let _ = menu.status_item.set_text(&label);
+        let _ = self.tray.set_tooltip(Some(format!("yap — {label}")));
+    }
 }
 
 impl<R: Runtime> Feedback for TrayFeedback<R> {
@@ -25,12 +143,16 @@ impl<R: Runtime> Feedback for TrayFeedback<R> {
             Status::Idle => ("Idle".to_string(), dot([0, 0, 0, 255]), true),
             Status::Recording => ("Recording…".to_string(), dot([230, 57, 70, 255]), false),
             Status::Transcribing => ("Transcribing…".to_string(), dot([244, 162, 97, 255]), false),
+            Status::Transforming => ("Transforming…".to_string(), dot([244, 162, 97, 255]), false),
             Status::Error(message) => (format!("Error: {message}"), warning(), true),
         };
         let _ = self.tray.set_icon(Some(icon));
         let _ = self.tray.set_icon_as_template(template);
-        let _ = self.tray.set_tooltip(Some(format!("yap — {label}")));
-        let _ = self.status_item.set_text(label);
+        {
+            let mut menu = self.menu.lock().unwrap_or_else(|e| e.into_inner());
+            menu.label = label;
+            self.refresh(&menu);
+        }
         let _ = self.app.emit(STATUS_CHANGED, status);
     }
 
@@ -48,6 +170,12 @@ impl<R: Runtime> Feedback for TrayFeedback<R> {
 
     fn history_changed(&self) {
         let _ = self.app.emit(HISTORY_CHANGED, ());
+    }
+
+    fn tray(&self, state: &TrayState) {
+        let mut menu = self.menu.lock().unwrap_or_else(|e| e.into_inner());
+        menu.state = state.clone();
+        self.refresh(&menu);
     }
 }
 

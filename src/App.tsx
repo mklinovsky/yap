@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from "react";
-import { History } from "./History";
-import { Settings } from "./Settings";
-import { TryIt } from "./TryIt";
+import { History } from "./history/History";
+import { Settings } from "./settings/Settings";
+import { Transformations } from "./transformations/Transformations";
+import { TryIt } from "./try-it/TryIt";
 
-export type Section = "history" | "try" | "settings";
+export type Section = "history" | "try" | "settings" | "transformations";
 
 const sections: { id: Section; title: string; icon: ReactNode }[] = [
   {
@@ -13,6 +14,15 @@ const sections: { id: Section; title: string; icon: ReactNode }[] = [
       <svg viewBox="0 0 20 20" aria-hidden="true">
         <circle cx="10" cy="10" r="2.5" />
         <path d="M10 2.75v2M10 15.25v2M2.75 10h2M15.25 10h2M4.87 4.87l1.42 1.42M13.71 13.71l1.42 1.42M4.87 15.13l1.42-1.42M13.71 6.29l1.42-1.42" />
+      </svg>
+    ),
+  },
+  {
+    id: "transformations",
+    title: "Transformations",
+    icon: (
+      <svg viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M10 2.75l1.6 4.15 4.15 1.6-4.15 1.6L10 14.25l-1.6-4.15-4.15-1.6 4.15-1.6L10 2.75ZM15.5 13.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4Z" />
       </svg>
     ),
   },
@@ -69,6 +79,7 @@ export function App({ initialSection }: { initialSection: Section }) {
           {section === "history" && <History />}
           {section === "try" && <TryIt />}
           {section === "settings" && <Settings />}
+          {section === "transformations" && <Transformations />}
         </div>
       </main>
     </div>

@@ -14,6 +14,23 @@ export interface Settings {
   maxMinutes: number;
 }
 
+export interface Transformation {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  userTemplate: string;
+  model: string | null;
+  shortcut: string | null;
+}
+
+export interface Transformations {
+  enabled: boolean;
+  baseUrl: string | null;
+  reuseApiKey: boolean;
+  defaultModel: string;
+  items: Transformation[];
+}
+
 export interface InputDevice {
   id: string;
   name: string;
@@ -23,22 +40,23 @@ export interface HistoryEntry {
   id: number;
   text: string;
   createdAt: number;
-  /** USD, when the endpoint reported it. */
-  cost: number | null;
-  /** Seconds of recorded audio; null for entries from older versions. */
-  duration: number | null;
-  /** Bytes uploaded; null for entries from older versions. */
-  size: number | null;
-  /** Seconds spent encoding FLAC; null for entries from older versions. */
-  encodeTime: number | null;
-  /** Seconds the transcription request took; null for entries from older versions. */
-  transcribeTime: number | null;
+  costInUsd: number | null;
+  durationInSeconds: number | null;
+  sizeInBytes: number | null;
+  encodeTimeInSeconds: number | null;
+  transcribeTimeInSeconds: number | null;
+  rawText: string | null;
+  transformationName: string | null;
+  transformError: string | null;
+  transformCostInUsd: number | null;
+  transformTimeInSeconds: number | null;
 }
 
 export type Status =
   | { state: "idle" }
   | { state: "recording" }
   | { state: "transcribing" }
+  | { state: "transforming" }
   | { state: "error"; message: string };
 
 export const HISTORY_CHANGED = "history-changed";
@@ -49,6 +67,11 @@ export const api = {
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
   apiKeyPreview: () => invoke<string | null>("api_key_preview"),
   setApiKey: (key: string) => invoke<void>("set_api_key", { key }),
+  getTransformations: () => invoke<Transformations>("get_transformations"),
+  saveTransformations: (transformations: Transformations) =>
+    invoke<void>("save_transformations", { transformations }),
+  transformApiKeyPreview: () => invoke<string | null>("transform_api_key_preview"),
+  setTransformApiKey: (key: string) => invoke<void>("set_transform_api_key", { key }),
   getOpenAtLogin: () => invoke<boolean>("get_open_at_login"),
   setOpenAtLogin: (enabled: boolean) => invoke<void>("set_open_at_login", { enabled }),
   listHistory: () => invoke<HistoryEntry[]>("list_history"),

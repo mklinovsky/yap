@@ -1,27 +1,30 @@
 pub mod audio;
 pub mod dictation;
+pub mod http;
 pub mod paster;
 pub mod recorder;
 pub mod store;
 pub mod transcriber;
+pub mod transformer;
 pub mod tray;
 
+use std::collections::HashMap;
 use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use dictation::{Clock, Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status, Timer};
+use dictation::{Apply, Clock, Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status, Timer};
 use paster::ClipboardPaster;
 use recorder::CpalRecorder;
-use store::{HistoryEntry, Settings, Store};
+use store::{HistoryEntry, Settings, Store, Transformations};
 use transcriber::HttpTranscriber;
-use tray::{dot, TrayFeedback};
+use transformer::HttpTransformer;
+use tray::{dot, TrayFeedback, MENU_OPEN, MENU_PICK_PREFIX, MENU_QUIT, MENU_USE_ONCE};
 
 struct ThreadSpawner;
 
@@ -42,6 +45,8 @@ impl Clock for SystemClock {
 enum Input {
     Shortcut(ShortcutEvent),
     Toggle,
+    Select(Option<String>),
+    SetUseOnce(bool),
     Run(Box<dyn FnOnce() + Send>),
 }
 
@@ -63,13 +68,19 @@ impl dictation::Secrets for Store {
     fn api_key(&self) -> Option<String> {
         Store::api_key(self).ok().flatten()
     }
+
+    fn transform_api_key(&self) -> Option<String> {
+        Store::transform_api_key(self).ok().flatten()
+    }
 }
 
 struct AppState {
     store: Arc<Store>,
     paster: Arc<ClipboardPaster<Wry>>,
+    feedback: Arc<TrayFeedback<Wry>>,
     dictation: Dictation,
     inputs: mpsc::Sender<Input>,
+    apply_by_shortcut_id: Mutex<HashMap<u32, Apply>>,
 }
 
 const MAIN_WINDOW: &str = "main";
@@ -85,22 +96,64 @@ async fn get_settings(state: State<'_>) -> Result<Settings, String> {
 async fn save_settings(app: AppHandle, state: State<'_>, settings: Settings) -> Result<(), String> {
     let previous = state.store.settings().map_err(|e| e.to_string())?;
     if settings.shortcut != previous.shortcut {
-        let shortcut = parse_shortcut(&settings.shortcut)?;
-        let shortcuts = app.global_shortcut();
-        shortcuts.unregister_all().map_err(|e| e.to_string())?;
-        if let Err(error) = shortcuts.register(shortcut) {
-            if let Ok(previous) = parse_shortcut(&previous.shortcut) {
-                let _ = shortcuts.register(previous);
-            }
-            return Err(format!(
-                "Shortcut \"{}\" is unavailable: {error}",
-                settings.shortcut
-            ));
-        }
+        let transformations = state.store.transformations().map_err(|e| e.to_string())?;
+        transformations.validate(&settings.shortcut)?;
+        rebind_or_restore(
+            &app,
+            &state,
+            (&settings, &transformations),
+            (&previous, &transformations),
+        )?;
     }
     state
         .store
         .save_settings(&settings)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_transformations(state: State<'_>) -> Result<Transformations, String> {
+    state.store.transformations().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_transformations(
+    app: AppHandle,
+    state: State<'_>,
+    transformations: Transformations,
+) -> Result<(), String> {
+    let settings = state.store.settings().map_err(|e| e.to_string())?;
+    transformations.validate(&settings.shortcut)?;
+    let previous = state.store.transformations().map_err(|e| e.to_string())?;
+    if bindings(&settings, &transformations)? != bindings(&settings, &previous)? {
+        rebind_or_restore(
+            &app,
+            &state,
+            (&settings, &transformations),
+            (&settings, &previous),
+        )?;
+    }
+    state
+        .store
+        .save_transformations(&transformations)
+        .map_err(|e| e.to_string())?;
+    state.dictation.clear_pick_if_deleted();
+    state.feedback.rebuild().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn transform_api_key_preview(state: State<'_>) -> Result<Option<String>, String> {
+    state
+        .store
+        .transform_api_key_preview()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_transform_api_key(state: State<'_>, key: String) -> Result<(), String> {
+    state
+        .store
+        .set_transform_api_key(key.trim())
         .map_err(|e| e.to_string())
 }
 
@@ -175,17 +228,75 @@ async fn pause_shortcut(app: AppHandle, state: State<'_>) -> Result<(), String> 
 
 #[tauri::command]
 async fn resume_shortcut(app: AppHandle, state: State<'_>) -> Result<(), String> {
-    let shortcut = state.store.settings().map_err(|e| e.to_string())?.shortcut;
-    register_shortcut(&app, &shortcut)
+    let settings = state.store.settings().map_err(|e| e.to_string())?;
+    let transformations = state.store.transformations().map_err(|e| e.to_string())?;
+    register_all_or_none(&app, &state, &bindings(&settings, &transformations)?)
 }
 
-fn register_shortcut<R: Runtime>(app: &AppHandle<R>, shortcut: &str) -> Result<(), String> {
-    let parsed = parse_shortcut(shortcut)?;
-    let shortcuts = app.global_shortcut();
-    if shortcuts.is_registered(parsed) {
-        return Ok(());
+type Binding = (String, Shortcut, Apply);
+
+fn bindings(
+    settings: &Settings,
+    transformations: &Transformations,
+) -> Result<Vec<Binding>, String> {
+    let mut bindings = vec![(
+        settings.shortcut.clone(),
+        parse_shortcut(&settings.shortcut)?,
+        Apply::TrayPick,
+    )];
+    if transformations.enabled {
+        for item in &transformations.items {
+            if let Some(shortcut) = &item.shortcut {
+                bindings.push((
+                    shortcut.clone(),
+                    parse_shortcut(shortcut)?,
+                    Apply::Transformation(item.id.clone()),
+                ));
+            }
+        }
     }
-    shortcuts.register(parsed).map_err(|e| e.to_string())
+    Ok(bindings)
+}
+
+fn register_all_or_none<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    bindings: &[Binding],
+) -> Result<(), String> {
+    let shortcuts = app.global_shortcut();
+    shortcuts.unregister_all().map_err(|e| e.to_string())?;
+    let mut registered = HashMap::new();
+    for (text, shortcut, apply) in bindings {
+        if let Err(error) = shortcuts.register(*shortcut) {
+            let _ = shortcuts.unregister_all();
+            registered.clear();
+            *state
+                .apply_by_shortcut_id
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = registered;
+            return Err(format!("Shortcut \"{text}\" is unavailable: {error}"));
+        }
+        registered.insert(shortcut.id(), apply.clone());
+    }
+    *state
+        .apply_by_shortcut_id
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = registered;
+    Ok(())
+}
+
+fn rebind_or_restore<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    next: (&Settings, &Transformations),
+    previous: (&Settings, &Transformations),
+) -> Result<(), String> {
+    let next = bindings(next.0, next.1)?;
+    register_all_or_none(app, state, &next).inspect_err(|_| {
+        if let Ok(previous) = bindings(previous.0, previous.1) {
+            let _ = register_all_or_none(app, state, &previous);
+        }
+    })
 }
 
 fn parse_shortcut(text: &str) -> Result<Shortcut, String> {
@@ -241,18 +352,30 @@ pub fn run() {
         )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
+                    let state = app.state::<AppState>();
                     let event = match event.state {
-                        ShortcutState::Pressed => ShortcutEvent::Pressed,
+                        ShortcutState::Pressed => {
+                            let bindings = state
+                                .apply_by_shortcut_id
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner());
+                            let apply = bindings.get(&shortcut.id()).cloned();
+                            ShortcutEvent::Pressed(apply.unwrap_or(Apply::TrayPick))
+                        }
                         ShortcutState::Released => ShortcutEvent::Released,
                     };
-                    let _ = app.state::<AppState>().inputs.send(Input::Shortcut(event));
+                    let _ = state.inputs.send(Input::Shortcut(event));
                 })
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
+            get_transformations,
+            save_transformations,
+            transform_api_key_preview,
+            set_transform_api_key,
             api_key_preview,
             set_api_key,
             get_open_at_login,
@@ -274,34 +397,32 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let store = Arc::new(Store::open(&data_dir.join("yap.db"))?);
 
-            let status_item = MenuItem::with_id(app, "status", "Idle", false, None::<&str>)?;
-            let menu = Menu::with_items(
-                app,
-                &[
-                    &status_item,
-                    &PredefinedMenuItem::separator(app)?,
-                    &MenuItem::with_id(app, "open", "Open yap…", true, None::<&str>)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &MenuItem::with_id(app, "quit", "Quit yap", true, None::<&str>)?,
-                ],
-            )?;
             let tray = TrayIconBuilder::with_id("main")
                 .icon(dot([0, 0, 0, 255]))
                 .icon_as_template(true)
                 .tooltip("yap — Idle")
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "open" => open_window(app),
-                    "quit" => app.exit(0),
-                    _ => {}
+                .on_menu_event(|app, event| {
+                    let id = event.id().as_ref();
+                    let state = app.state::<AppState>();
+                    let inputs = &state.inputs;
+                    if id == MENU_OPEN {
+                        open_window(app);
+                    } else if id == MENU_QUIT {
+                        app.exit(0);
+                    } else if id == MENU_USE_ONCE {
+                        let use_once = state.dictation.tray_state().use_once;
+                        let _ = inputs.send(Input::SetUseOnce(!use_once));
+                    } else if let Some(pick) = id.strip_prefix(MENU_PICK_PREFIX) {
+                        let pick = (!pick.is_empty()).then(|| pick.to_string());
+                        let _ = inputs.send(Input::Select(pick));
+                    }
                 })
                 .build(app)?;
-
-            let feedback = Arc::new(TrayFeedback {
-                app: app.handle().clone(),
+            let feedback = Arc::new(TrayFeedback::new(
+                app.handle().clone(),
                 tray,
-                status_item,
-            });
+                store.clone(),
+            )?);
             let paster = Arc::new(ClipboardPaster::new(app.handle().clone()));
             // One worker keeps press/release ordered and keeps recorder and database work off the main thread.
             let (inputs, received) = mpsc::channel();
@@ -309,6 +430,7 @@ pub fn run() {
                 store: store.clone(),
                 recorder: Arc::new(CpalRecorder::default()),
                 transcriber: Arc::new(HttpTranscriber::new()),
+                transformer: Arc::new(HttpTransformer::new()),
                 paster: paster.clone(),
                 feedback: feedback.clone(),
                 secrets: store.clone(),
@@ -325,6 +447,8 @@ pub fn run() {
                     match input {
                         Input::Shortcut(event) => worker.handle(event),
                         Input::Toggle => worker.toggle(),
+                        Input::Select(id) => worker.select(id),
+                        Input::SetUseOnce(use_once) => worker.set_use_once(use_once),
                         Input::Run(job) => job(),
                     }
                 }
@@ -333,13 +457,17 @@ pub fn run() {
             app.manage(AppState {
                 store: store.clone(),
                 paster,
+                feedback: feedback.clone(),
                 dictation,
                 inputs,
+                apply_by_shortcut_id: Mutex::default(),
             });
 
-            let shortcut = store.settings()?.shortcut;
-            if let Err(error) = register_shortcut(app.handle(), &shortcut) {
-                feedback.status(&Status::Error(format!("Shortcut \"{shortcut}\": {error}")));
+            let state = app.state::<AppState>();
+            let registered = bindings(&store.settings()?, &store.transformations()?)
+                .and_then(|bindings| register_all_or_none(app.handle(), &state, &bindings));
+            if let Err(error) = registered {
+                feedback.status(&Status::Error(error));
             }
 
             if store.api_key_preview()?.is_none() {

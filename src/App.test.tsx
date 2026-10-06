@@ -27,6 +27,14 @@ function mockBackend() {
           return [];
         case "get_status":
           return { state: "idle" };
+        case "get_transformations":
+          return {
+            enabled: false,
+            baseUrl: null,
+            reuseApiKey: true,
+            defaultModel: "gpt-6-luna",
+            items: [],
+          };
         default:
           return null;
       }
@@ -48,3 +56,17 @@ test("opens on the requested section and switches from the sidebar", async () =>
   expect(screen.queryByRole("heading", { name: "History" })).not.toBeInTheDocument();
 });
 
+
+test("lists Transformations between Settings and History", async () => {
+  const user = userEvent.setup();
+  mockBackend();
+  render(<App initialSection="settings" />);
+
+  const nav = screen.getAllByRole("button").filter((b) => b.classList.contains("nav-item"));
+  expect(nav.map((b) => b.textContent)).toEqual(["Settings", "Transformations", "History", "Try it"]);
+  await user.click(screen.getByRole("button", { name: "Transformations" }));
+
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Transformations" }),
+  ).toBeInTheDocument();
+});

@@ -3,7 +3,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { STATUS_CHANGED } from "./api";
+import { STATUS_CHANGED } from "../api";
 import { TryIt } from "./TryIt";
 
 function mockBackend() {
@@ -39,6 +39,9 @@ test("follows the live dictation status", async () => {
 
   await emit(STATUS_CHANGED, { state: "transcribing" });
   expect(await screen.findByRole("button", { name: "Transcribing…" })).toBeDisabled();
+
+  await emit(STATUS_CHANGED, { state: "transforming" });
+  expect(await screen.findByRole("button", { name: "Transforming…" })).toBeDisabled();
 
   await emit(STATUS_CHANGED, { state: "error", message: "HTTP 401: Incorrect API key provided" });
   expect(await screen.findByText("HTTP 401: Incorrect API key provided")).toBeInTheDocument();

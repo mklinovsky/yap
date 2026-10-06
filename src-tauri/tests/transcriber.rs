@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use mockito::Matcher;
-use yap_lib::transcriber::{HttpTranscriber, TranscribeError, TranscribeRequest, Transcriber};
+use yap_lib::http::ApiError;
+use yap_lib::transcriber::{HttpTranscriber, TranscribeRequest, Transcriber};
 
 fn request(base_url: String) -> TranscribeRequest {
     TranscribeRequest {
@@ -72,7 +73,7 @@ fn http_error_carries_status_and_provider_message() {
 
     assert_eq!(
         error,
-        TranscribeError::Http {
+        ApiError::Http {
             status: 401,
             message: "Incorrect API key provided".into(),
         }
@@ -106,10 +107,7 @@ fn success_without_transcription_text_is_an_invalid_response() {
         .transcribe(request(server.url()))
         .unwrap_err();
 
-    assert!(
-        matches!(error, TranscribeError::InvalidResponse(_)),
-        "{error:?}"
-    );
+    assert!(matches!(error, ApiError::InvalidResponse(_)), "{error:?}");
 }
 
 fn capture_body(server: &mut mockito::Server) -> Arc<Mutex<String>> {
@@ -264,7 +262,7 @@ fn reports_cost_from_litellm_header() {
         .transcribe(request(server.url()))
         .unwrap();
 
-    assert_eq!(transcription.cost, Some(0.00123));
+    assert_eq!(transcription.cost_in_usd, Some(0.00123));
 }
 
 #[test]
@@ -279,7 +277,7 @@ fn cost_is_unknown_without_litellm_header() {
         .transcribe(request(server.url()))
         .unwrap();
 
-    assert_eq!(transcription.cost, None);
+    assert_eq!(transcription.cost_in_usd, None);
 }
 
 #[test]
@@ -296,7 +294,7 @@ fn unparsable_cost_header_is_ignored() {
         .unwrap();
 
     assert_eq!(transcription.text, "hello");
-    assert_eq!(transcription.cost, None);
+    assert_eq!(transcription.cost_in_usd, None);
 }
 
 #[test]

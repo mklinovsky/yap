@@ -8,10 +8,11 @@ Push-to-talk dictation for macOS. Press a global shortcut, speak, and the transc
 - Restores your previous clipboard after pasting
 - Optional open at login
 - Multiple languages and custom vocabulary (`gpt-transcribe`)
-- History with duration, upload size and cost (cost via LiteLLM's `x-litellm-response-cost` header)
+- Optional transformations: an LLM rewrites the transcript before pasting (any OpenAI-compatible `/chat/completions` endpoint)
+- History with duration, cost and details (cost via LiteLLM's `x-litellm-response-cost` header)
 - Lives in the menu bar, no Dock icon
 
-No LLM cleanup: you get the raw transcript.
+Without a transformation you get the raw transcript.
 
 ## Install
 
@@ -40,7 +41,18 @@ Settings opens on first launch:
 | Sounds | on |
 | Open at login | off |
 
-Data, including the API key in plain text, is stored in `~/Library/Application Support/com.mklinovsky.yap/yap.db`.
+## Transformations
+
+A transformation is a named prompt applied to the transcript before it is pasted: fix grammar, translate, turn notes into bullet points. Set them up in the Transformations section:
+
+- Turn on **Enabled**. Base URL and API key default to the transcription ones; a separate endpoint, key and default model can be set.
+- Each transformation has a system prompt, a user message (`{{transcript}}` marks where the transcript goes; empty sends the transcript alone), an optional model and an optional shortcut.
+- A transformation's shortcut dictates and applies it. The regular shortcut applies the transformation checked in the menu bar menu; with **Use once** checked, the menu goes back to None after one dictation.
+- If the transformation fails, nothing is pasted; the raw transcript is in History.
+
+With transformations on, transcripts are also sent to the transformation endpoint.
+
+Data, including the API keys in plain text, is stored in `~/Library/Application Support/com.mklinovsky.yap/yap.db`.
 
 ## Development
 

@@ -1,17 +1,20 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
-import { api, STATUS_CHANGED, type Status } from "./api";
+import { api, STATUS_CHANGED, type Status } from "../api";
 
 const LABELS: Record<Status["state"], string> = {
   idle: "Start recording",
   error: "Start recording",
   recording: "Stop recording",
   transcribing: "Transcribing…",
+  transforming: "Transforming…",
 };
 
 function StateIcon({ state }: { state: Status["state"] }) {
   if (state === "recording") return <span className="record-dot" aria-hidden="true" />;
-  if (state === "transcribing") return <span className="spinner" aria-hidden="true" />;
+  if (state === "transcribing" || state === "transforming") {
+    return <span className="spinner" aria-hidden="true" />;
+  }
   return (
     <svg className="mic" viewBox="0 0 20 20" aria-hidden="true">
       <rect x="7.25" y="2.75" width="5.5" height="9.5" rx="2.75" />
@@ -48,7 +51,7 @@ export function TryIt() {
         <button
           type="button"
           className={`record ${status.state}`}
-          disabled={status.state === "transcribing"}
+          disabled={status.state === "transcribing" || status.state === "transforming"}
           onClick={toggle}
         >
           <StateIcon state={status.state} />

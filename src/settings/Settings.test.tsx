@@ -2,7 +2,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
-import type { Settings as SettingsData } from "./api";
+import type { Settings as SettingsData } from "../api";
 import { Settings } from "./Settings";
 
 const stored: SettingsData = {
