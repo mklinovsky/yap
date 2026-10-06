@@ -1,4 +1,4 @@
-# yap
+# <img src="src-tauri/icons/128x128@2x.png" width="56" height="56" align="absmiddle" alt=""> yap
 
 Push-to-talk dictation for macOS. Press a global shortcut, speak, and the transcript is pasted at the cursor.
 
