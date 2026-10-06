@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { api, type HistoryEntry } from "../api";
 import { formatCost, formatDuration, joined, totalCostInUsd } from "./format";
 import { HistoryDetails } from "./HistoryDetails";
@@ -9,6 +10,23 @@ export function HistoryCard({ entry, onDelete }: { entry: HistoryEntry; onDelete
     cost !== null && formatCost(cost),
   ]);
   const failed = entry.transformError !== null;
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const rawRef = useRef<HTMLQuoteElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useLayoutEffect(() => {
+    if (expanded) {
+      return;
+    }
+    const clamped = [textRef.current, rawRef.current].filter((element) => element !== null);
+    const measure = () =>
+      setOverflowing(clamped.some((element) => element.scrollHeight > element.clientHeight));
+    measure();
+    const observer = new ResizeObserver(measure);
+    clamped.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [expanded, entry.text, entry.rawText]);
 
   return (
     <li className="card">
@@ -28,36 +46,61 @@ export function HistoryCard({ entry, onDelete }: { entry: HistoryEntry; onDelete
               {entry.transformationName}
             </span>
           )}
-          {summary && <span className="card-summary">{summary}</span>}
         </div>
-        <div className="card-actions">
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Copy"
-            title="Copy"
-            onClick={() => api.copyText(entry.text)}
-          >
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <rect x="6.75" y="6.75" width="9.5" height="9.5" rx="2" />
-              <path d="M13.25 6.75V5.5a1.75 1.75 0 0 0-1.75-1.75h-6A1.75 1.75 0 0 0 3.75 5.5v6a1.75 1.75 0 0 0 1.75 1.75h1.25" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="icon-button danger"
-            aria-label="Delete"
-            title="Delete"
-            onClick={onDelete}
-          >
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M4 5.75h12M8.25 5.75V4.5c0-.41.34-.75.75-.75h2c.41 0 .75.34.75.75v1.25M5.5 5.75l.7 9.6c.06.8.72 1.4 1.52 1.4h4.56c.8 0 1.46-.6 1.52-1.4l.7-9.6" />
-            </svg>
-          </button>
+        <div className="card-side">
+          {summary && <span className="card-summary">{summary}</span>}
+          <div className="card-actions">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Copy"
+              title="Copy"
+              onClick={() => api.copyText(entry.text)}
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <rect x="6.75" y="6.75" width="9.5" height="9.5" rx="2" />
+                <path d="M13.25 6.75V5.5a1.75 1.75 0 0 0-1.75-1.75h-6A1.75 1.75 0 0 0 3.75 5.5v6a1.75 1.75 0 0 0 1.75 1.75h1.25" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="icon-button danger"
+              aria-label="Delete"
+              title="Delete"
+              onClick={onDelete}
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M4 5.75h12M8.25 5.75V4.5c0-.41.34-.75.75-.75h2c.41 0 .75.34.75.75v1.25M5.5 5.75l.7 9.6c.06.8.72 1.4 1.52 1.4h4.56c.8 0 1.46-.6 1.52-1.4l.7-9.6" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
-      <p>{entry.text}</p>
-      <HistoryDetails entry={entry} />
+      <p ref={textRef} className={expanded ? undefined : "clamped"}>
+        {entry.text}
+      </p>
+      {entry.rawText !== null && (
+        <blockquote
+          ref={rawRef}
+          className={expanded ? "card-raw" : "card-raw clamped"}
+          title="Raw transcript"
+        >
+          {entry.rawText}
+        </blockquote>
+      )}
+      <div className="card-footer">
+        <HistoryDetails entry={entry} />
+        {(expanded || overflowing) && (
+          <button
+            type="button"
+            className="show-more"
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        )}
+      </div>
     </li>
   );
 }

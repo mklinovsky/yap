@@ -3,6 +3,12 @@ import { cleanup } from "@testing-library/react";
 import { clearMocks } from "@tauri-apps/api/mocks";
 import { afterEach } from "vitest";
 
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 afterEach(async () => {
   cleanup();
   // Unmount cleanups (event unlisten) resolve asynchronously and still need the mocked internals.

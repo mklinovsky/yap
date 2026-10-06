@@ -1,6 +1,7 @@
 import type { HistoryEntry } from "../api";
 
-export const formatCost = (cost: number) => `$${cost.toFixed(4)}`;
+export const formatCost = (cost: number) =>
+  cost > 0 && cost < 0.00005 ? "<$0.0001" : `$${cost.toFixed(4)}`;
 
 export const formatDuration = (seconds: number) => {
   if (seconds < 60) {
