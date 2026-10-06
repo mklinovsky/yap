@@ -84,7 +84,9 @@ impl Transcriber for HttpTranscriber {
             // verbose_json when this is missing; gpt-transcribe rejects verbose_json.
             .text("response_format", "json")
             .part("file", file);
-        let gpt_transcribe = request.model.starts_with("gpt-transcribe");
+        // Proxies such as LiteLLM name models with a provider prefix, e.g. `openai/gpt-transcribe`.
+        let model_name = request.model.rsplit('/').next().unwrap_or_default();
+        let gpt_transcribe = model_name.starts_with("gpt-transcribe");
         if gpt_transcribe {
             // gpt-transcribe replaced `language` with `languages[]`; OpenAI says never to send both.
             for language in request.languages {

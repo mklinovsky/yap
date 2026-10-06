@@ -17,7 +17,7 @@ No LLM cleanup: you get the raw transcript.
 
 1. Download the `.dmg` from [Releases](../../releases/latest) (universal: Apple Silicon and Intel).
 2. Drag `yap.app` to Applications.
-3. yap is not signed, so macOS refuses to open the downloaded app ("damaged" on Apple Silicon). Clear the download flag:
+3. yap is not notarized, so macOS blocks the first launch ("Apple could not verify…"). Clear the download flag (or use System Settings → Privacy & Security → Open Anyway):
    ```sh
    xattr -dr com.apple.quarantine /Applications/yap.app
    ```

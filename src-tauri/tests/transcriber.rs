@@ -298,3 +298,29 @@ fn unparsable_cost_header_is_ignored() {
     assert_eq!(transcription.text, "hello");
     assert_eq!(transcription.cost, None);
 }
+
+#[test]
+fn gpt_transcribe_behind_a_provider_prefix_receives_languages_and_keywords() {
+    let mut server = mockito::Server::new();
+    let body = capture_body(&mut server);
+
+    HttpTranscriber::new()
+        .transcribe(TranscribeRequest {
+            model: "openai/gpt-transcribe".into(),
+            languages: vec!["en".into(), "sk".into()],
+            keywords: vec!["Tauri".into()],
+            ..request(server.url())
+        })
+        .unwrap();
+
+    let body = body.lock().unwrap();
+    assert_eq!(
+        (
+            body.contains("name=\"languages[]\"\r\n\r\nen\r\n"),
+            body.contains("name=\"languages[]\"\r\n\r\nsk\r\n"),
+            body.contains("name=\"keywords[]\"\r\n\r\nTauri\r\n"),
+            body.contains("name=\"language\""),
+        ),
+        (true, true, true, false)
+    );
+}
