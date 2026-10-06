@@ -40,7 +40,7 @@ impl Default for Settings {
             languages: Vec::new(),
             keywords: Vec::new(),
             input_device: None,
-            shortcut: "Alt+Space".into(),
+            shortcut: "Shift+Super+Semicolon".into(),
             mode: Mode::Hold,
             sounds: true,
             max_minutes: default_max_minutes(),

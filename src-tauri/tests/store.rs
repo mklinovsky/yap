@@ -12,7 +12,7 @@ fn fresh_store_returns_default_settings() {
             languages: vec![],
             keywords: vec![],
             input_device: None,
-            shortcut: "Alt+Space".into(),
+            shortcut: "Shift+Super+Semicolon".into(),
             mode: Mode::Hold,
             sounds: true,
             max_minutes: 5,

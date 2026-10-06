@@ -29,7 +29,14 @@ export function Settings() {
       setSaved({ settings: loaded, vocabulary: loadedVocabulary, openAtLogin: loginItem });
     });
     api.apiKeyPreview().then(setKeyPreview);
-    api.listInputDevices().then(setDevices);
+  }, []);
+
+  useEffect(() => {
+    const loadDevices = () => api.listInputDevices().then(setDevices);
+    loadDevices();
+    // The backend has no device-change event, so a mic plugged in while Settings is open is found by polling.
+    const timer = setInterval(loadDevices, 2000);
+    return () => clearInterval(timer);
   }, []);
 
   if (!settings) {

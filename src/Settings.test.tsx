@@ -1,7 +1,7 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { Settings as SettingsData } from "./api";
 import { Settings } from "./Settings";
 
@@ -18,6 +18,10 @@ const stored: SettingsData = {
 };
 
 let preview: string | null;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function mockBackend(overrides: Record<string, (payload: unknown) => unknown> = {}) {
   preview = "sk-p••••••••";
@@ -287,6 +291,19 @@ test("leaves the login item alone when it was not changed", async () => {
 
   await screen.findByText("Saved");
   expect(calls.some((c) => c.cmd === "set_open_at_login")).toBe(false);
+});
+
+test("lists an input device plugged in while Settings is open", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let devices = [{ id: "coreaudio:BuiltIn", name: "MacBook Pro Microphone" }];
+  mockBackend({ list_input_devices: () => devices });
+  render(<Settings />);
+  await screen.findByRole("option", { name: "MacBook Pro Microphone" });
+
+  devices = [...devices, { id: "coreaudio:USB", name: "USB Microphone" }];
+  await vi.advanceTimersByTimeAsync(2000);
+
+  expect(await screen.findByRole("option", { name: "USB Microphone" })).toBeInTheDocument();
 });
 
 test("Save is enabled only while there are unsaved changes", async () => {
