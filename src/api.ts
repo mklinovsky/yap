@@ -29,6 +29,10 @@ export interface HistoryEntry {
   duration: number | null;
   /** Bytes uploaded; null for entries from older versions. */
   size: number | null;
+  /** Seconds spent encoding FLAC; null for entries from older versions. */
+  encodeTime: number | null;
+  /** Seconds the transcription request took; null for entries from older versions. */
+  transcribeTime: number | null;
 }
 
 export type Status =

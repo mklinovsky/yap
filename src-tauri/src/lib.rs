@@ -8,7 +8,7 @@ pub mod tray;
 
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -16,7 +16,7 @@ use tauri::{AppHandle, Manager, RunEvent, Runtime, WebviewUrl, WebviewWindowBuil
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use dictation::{Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status, Timer};
+use dictation::{Clock, Deps, Dictation, Feedback, ShortcutEvent, Spawner, Status, Timer};
 use paster::ClipboardPaster;
 use recorder::CpalRecorder;
 use store::{HistoryEntry, Settings, Store};
@@ -28,6 +28,14 @@ struct ThreadSpawner;
 impl Spawner for ThreadSpawner {
     fn spawn(&self, job: Box<dyn FnOnce() + Send>) {
         std::thread::spawn(job);
+    }
+}
+
+struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now(&self) -> Instant {
+        Instant::now()
     }
 }
 
@@ -308,6 +316,7 @@ pub fn run() {
                 timer: Arc::new(WorkerTimer {
                     inputs: inputs.clone(),
                 }),
+                clock: Arc::new(SystemClock),
             });
 
             let worker = dictation.clone();

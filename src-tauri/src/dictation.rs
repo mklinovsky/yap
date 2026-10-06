@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::audio::encode_flac;
 use crate::store::{Mode, Store};
@@ -77,6 +77,10 @@ pub trait Timer: Send + Sync {
     fn after(&self, delay: Duration, job: Box<dyn FnOnce() + Send>);
 }
 
+pub trait Clock: Send + Sync {
+    fn now(&self) -> Instant;
+}
+
 pub struct Deps {
     pub store: Arc<Store>,
     pub recorder: Arc<dyn Recorder>,
@@ -86,6 +90,7 @@ pub struct Deps {
     pub secrets: Arc<dyn Secrets>,
     pub spawner: Arc<dyn Spawner>,
     pub timer: Arc<dyn Timer>,
+    pub clock: Arc<dyn Clock>,
 }
 
 #[derive(Clone)]
@@ -193,11 +198,13 @@ impl Dictation {
 
     fn transcribe_and_paste(&self, recording: Recording) {
         let settings = self.deps.store.settings().unwrap_or_default();
+        let started = self.deps.clock.now();
         let audio = encode_flac(
             &recording.samples,
             recording.sample_rate,
             recording.channels,
         );
+        let encoded = self.deps.clock.now();
         let size = audio.len() as i64;
         let request = TranscribeRequest {
             base_url: settings.base_url,
@@ -207,7 +214,9 @@ impl Dictation {
             keywords: settings.keywords,
             audio,
         };
-        match self.deps.transcriber.transcribe(request) {
+        let result = self.deps.transcriber.transcribe(request);
+        let transcribed = self.deps.clock.now();
+        match result {
             Ok(transcription) if transcription.text.trim().is_empty() => {
                 self.set_status(Status::Idle)
             }
@@ -216,7 +225,14 @@ impl Dictation {
                 if self
                     .deps
                     .store
-                    .add_history(text, transcription.cost, recording.seconds() as f64, size)
+                    .add_history(
+                        text,
+                        transcription.cost,
+                        recording.seconds() as f64,
+                        size,
+                        encoded.duration_since(started).as_secs_f64(),
+                        transcribed.duration_since(encoded).as_secs_f64(),
+                    )
                     .is_ok()
                 {
                     self.deps.feedback.history_changed();

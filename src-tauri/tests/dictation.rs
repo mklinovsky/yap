@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use yap_lib::dictation::{
-    Cue, Deps, Dictation, Feedback, Paster, Recorder, Recording, Secrets, ShortcutEvent::*,
+    Clock, Cue, Deps, Dictation, Feedback, Paster, Recorder, Recording, Secrets, ShortcutEvent::*,
     Spawner, Status, Timer,
 };
 use yap_lib::store::{Mode, Settings, Store};
@@ -32,9 +32,22 @@ struct SentRequest {
     audio_len: usize,
 }
 
+struct FakeClock {
+    start: Instant,
+    elapsed: Mutex<Duration>,
+}
+
+impl Clock for FakeClock {
+    fn now(&self) -> Instant {
+        self.start + *self.elapsed.lock().unwrap()
+    }
+}
+
 struct FakeTranscriber {
     reply: Mutex<Result<Transcription, TranscribeError>>,
     sent: Mutex<Vec<SentRequest>>,
+    clock: Arc<FakeClock>,
+    takes: Mutex<Duration>,
 }
 
 impl Transcriber for FakeTranscriber {
@@ -46,6 +59,7 @@ impl Transcriber for FakeTranscriber {
             languages: request.languages,
             audio_len: request.audio.len(),
         });
+        *self.clock.elapsed.lock().unwrap() += *self.takes.lock().unwrap();
         self.reply.lock().unwrap().clone()
     }
 }
@@ -132,9 +146,15 @@ impl Harness {
             next: Mutex::new(speech()),
             opened: Mutex::default(),
         });
+        let clock = Arc::new(FakeClock {
+            start: Instant::now(),
+            elapsed: Mutex::default(),
+        });
         let transcriber = Arc::new(FakeTranscriber {
             reply: Mutex::new(Ok(transcript("hello world"))),
             sent: Mutex::default(),
+            clock: clock.clone(),
+            takes: Mutex::default(),
         });
         let paster = Arc::new(FakePaster::default());
         let feedback = Arc::new(FakeFeedback::default());
@@ -149,6 +169,7 @@ impl Harness {
             secrets: Arc::new(FakeSecrets(api_key.map(String::from))),
             spawner: spawner.clone(),
             timer: timer.clone(),
+            clock,
         });
         Self {
             dictation,
@@ -257,6 +278,22 @@ fn transcription_cost_is_saved_with_the_history_entry() {
         .map(|e| e.cost)
         .collect();
     assert_eq!(costs, [Some(0.0021)]);
+}
+
+#[test]
+fn history_entry_records_how_long_encoding_and_transcription_took() {
+    let h = Harness::hold();
+    *h.transcriber.takes.lock().unwrap() = Duration::from_millis(4500);
+
+    h.dictation.handle(Pressed);
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!(
+        (entry.encode_time, entry.transcribe_time),
+        (Some(0.0), Some(4.5))
+    );
 }
 
 #[test]

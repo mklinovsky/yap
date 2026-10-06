@@ -60,6 +60,10 @@ pub struct HistoryEntry {
     pub duration: Option<f64>,
     /// Bytes uploaded; unknown for entries from older versions.
     pub size: Option<i64>,
+    /// Seconds spent encoding FLAC; unknown for entries from older versions.
+    pub encode_time: Option<f64>,
+    /// Seconds the transcription request took; unknown for entries from older versions.
+    pub transcribe_time: Option<f64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -85,7 +89,9 @@ CREATE TABLE IF NOT EXISTS history (
     created_at INTEGER NOT NULL,
     cost REAL,
     duration REAL,
-    size INTEGER
+    size INTEGER,
+    encode_time REAL,
+    transcribe_time REAL
 );
 ";
 
@@ -144,12 +150,14 @@ impl Store {
         cost: Option<f64>,
         duration: f64,
         size: i64,
+        encode_time: f64,
+        transcribe_time: f64,
     ) -> Result<HistoryEntry, StoreError> {
         Ok(self.conn().query_row(
-            "INSERT INTO history (text, created_at, cost, duration, size)
-             VALUES (?1, CAST(unixepoch('subsec') * 1000 AS INTEGER), ?2, ?3, ?4)
-             RETURNING id, text, created_at, cost, duration, size",
-            rusqlite::params![text, cost, duration, size],
+            "INSERT INTO history (text, created_at, cost, duration, size, encode_time, transcribe_time)
+             VALUES (?1, CAST(unixepoch('subsec') * 1000 AS INTEGER), ?2, ?3, ?4, ?5, ?6)
+             RETURNING id, text, created_at, cost, duration, size, encode_time, transcribe_time",
+            rusqlite::params![text, cost, duration, size, encode_time, transcribe_time],
             history_entry,
         )?)
     }
@@ -157,7 +165,8 @@ impl Store {
     pub fn history(&self) -> Result<Vec<HistoryEntry>, StoreError> {
         let conn = self.conn();
         let mut stmt = conn.prepare(
-            "SELECT id, text, created_at, cost, duration, size FROM history ORDER BY id DESC",
+            "SELECT id, text, created_at, cost, duration, size, encode_time, transcribe_time
+             FROM history ORDER BY id DESC",
         )?;
         let entries = stmt
             .query_map([], history_entry)?
@@ -206,7 +215,13 @@ impl Store {
 }
 
 fn migrate(conn: &Connection) -> Result<(), StoreError> {
-    for (column, kind) in [("cost", "REAL"), ("duration", "REAL"), ("size", "INTEGER")] {
+    for (column, kind) in [
+        ("cost", "REAL"),
+        ("duration", "REAL"),
+        ("size", "INTEGER"),
+        ("encode_time", "REAL"),
+        ("transcribe_time", "REAL"),
+    ] {
         let exists: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM pragma_table_info('history') WHERE name = ?1)",
             [column],
@@ -244,5 +259,7 @@ fn history_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
         cost: row.get(3)?,
         duration: row.get(4)?,
         size: row.get(5)?,
+        encode_time: row.get(6)?,
+        transcribe_time: row.get(7)?,
     })
 }

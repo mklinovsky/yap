@@ -35,6 +35,8 @@ const entries: HistoryEntry[] = [
     cost: 0.0012,
     duration: 12.4,
     size: 204_800,
+    encodeTime: 0.031,
+    transcribeTime: 4.214,
   },
   {
     id: 1,
@@ -43,6 +45,8 @@ const entries: HistoryEntry[] = [
     cost: null,
     duration: null,
     size: null,
+    encodeTime: null,
+    transcribeTime: null,
   },
 ];
 
@@ -94,6 +98,8 @@ test("shows a new transcript when the backend announces a history change", async
       cost: null,
       duration: null,
       size: null,
+      encodeTime: null,
+      transcribeTime: null,
     },
     ...entries,
   ];
@@ -130,6 +136,8 @@ test("totals the cost of the listed transcripts", async () => {
       cost: 0.003,
       duration: null,
       size: null,
+      encodeTime: null,
+      transcribeTime: null,
     },
   ]);
 
@@ -155,6 +163,16 @@ test("shows how long each recording was and how much audio was uploaded", async 
   const [recorded, older] = await screen.findAllByRole("listitem");
   expect(within(recorded).getByText("12.4 s · 205 KB")).toBeInTheDocument();
   expect(within(older).queryByText(/ KB| MB/)).toBeNull();
+});
+
+test("shows how long encoding and the transcription request took", async () => {
+  mockBackend(entries);
+
+  render(<History />);
+
+  const [recorded, older] = await screen.findAllByRole("listitem");
+  expect(within(recorded).getByText("encode 0.03 s · API 4.21 s")).toBeInTheDocument();
+  expect(within(older).queryByText(/API/)).toBeNull();
 });
 
 test("shows minutes and megabytes for long recordings", async () => {

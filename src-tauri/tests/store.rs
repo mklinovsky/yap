@@ -50,8 +50,8 @@ fn saved_settings_survive_reopening_the_database() {
 fn history_lists_transcripts_newest_first() {
     let store = Store::open_in_memory().unwrap();
 
-    store.add_history("first", None, 1.0, 1).unwrap();
-    store.add_history("second", None, 1.0, 1).unwrap();
+    store.add_history("first", None, 1.0, 1, 0.0, 0.0).unwrap();
+    store.add_history("second", None, 1.0, 1, 0.0, 0.0).unwrap();
 
     let texts: Vec<String> = store
         .history()
@@ -65,8 +65,8 @@ fn history_lists_transcripts_newest_first() {
 #[test]
 fn deleted_history_entry_is_no_longer_listed() {
     let store = Store::open_in_memory().unwrap();
-    let keep = store.add_history("keep", None, 1.0, 1).unwrap();
-    let drop = store.add_history("drop", None, 1.0, 1).unwrap();
+    let keep = store.add_history("keep", None, 1.0, 1, 0.0, 0.0).unwrap();
+    let drop = store.add_history("drop", None, 1.0, 1, 0.0, 0.0).unwrap();
 
     store.delete_history(drop.id).unwrap();
 
@@ -178,8 +178,12 @@ fn api_key_preview_shows_only_the_first_characters() {
 fn history_entry_keeps_its_cost() {
     let store = Store::open_in_memory().unwrap();
 
-    store.add_history("priced", Some(0.0042), 1.0, 1).unwrap();
-    store.add_history("unpriced", None, 1.0, 1).unwrap();
+    store
+        .add_history("priced", Some(0.0042), 1.0, 1, 0.0, 0.0)
+        .unwrap();
+    store
+        .add_history("unpriced", None, 1.0, 1, 0.0, 0.0)
+        .unwrap();
 
     let costs: Vec<Option<f64>> = store
         .history()
@@ -194,10 +198,27 @@ fn history_entry_keeps_its_cost() {
 fn history_entry_keeps_its_recording_duration_and_upload_size() {
     let store = Store::open_in_memory().unwrap();
 
-    store.add_history("timed", None, 12.5, 204_800).unwrap();
+    store
+        .add_history("timed", None, 12.5, 204_800, 0.0, 0.0)
+        .unwrap();
 
     let entry = store.history().unwrap().remove(0);
     assert_eq!((entry.duration, entry.size), (Some(12.5), Some(204_800)));
+}
+
+#[test]
+fn history_entry_keeps_its_encode_and_transcribe_times() {
+    let store = Store::open_in_memory().unwrap();
+
+    store
+        .add_history("timed", None, 12.5, 204_800, 0.03, 4.2)
+        .unwrap();
+
+    let entry = store.history().unwrap().remove(0);
+    assert_eq!(
+        (entry.encode_time, entry.transcribe_time),
+        (Some(0.03), Some(4.2))
+    );
 }
 
 #[test]
@@ -217,12 +238,23 @@ fn history_from_older_versions_gains_missing_columns() {
         .unwrap();
 
     let store = Store::open(&path).unwrap();
-    store.add_history("new", Some(0.5), 2.0, 64_000).unwrap();
+    store
+        .add_history("new", Some(0.5), 2.0, 64_000, 0.03, 4.2)
+        .unwrap();
     let entries: Vec<_> = store
         .history()
         .unwrap()
         .into_iter()
-        .map(|entry| (entry.text, entry.cost, entry.duration, entry.size))
+        .map(|entry| {
+            (
+                entry.text,
+                entry.cost,
+                entry.duration,
+                entry.size,
+                entry.encode_time,
+                entry.transcribe_time,
+            )
+        })
         .collect();
     drop(store);
     std::fs::remove_file(&path).unwrap();
@@ -230,8 +262,15 @@ fn history_from_older_versions_gains_missing_columns() {
     assert_eq!(
         entries,
         [
-            ("new".into(), Some(0.5), Some(2.0), Some(64_000)),
-            ("old".into(), None, None, None)
+            (
+                "new".into(),
+                Some(0.5),
+                Some(2.0),
+                Some(64_000),
+                Some(0.03),
+                Some(4.2)
+            ),
+            ("old".into(), None, None, None, None, None)
         ]
     );
 }

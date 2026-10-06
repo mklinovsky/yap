@@ -12,6 +12,8 @@ const formatDuration = (seconds: number) => {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 };
 
+const formatSeconds = (seconds: number) => `${seconds.toFixed(2)} s`;
+
 const formatSize = (bytes: number) =>
   bytes < 1_000_000 ? `${Math.round(bytes / 1000)} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`;
 
@@ -66,6 +68,11 @@ export function History() {
                 {entry.duration !== null && entry.size !== null && (
                   <span className="card-audio">
                     {formatDuration(entry.duration)} · {formatSize(entry.size)}
+                  </span>
+                )}
+                {entry.encodeTime !== null && entry.transcribeTime !== null && (
+                  <span className="card-timing">
+                    encode {formatSeconds(entry.encodeTime)} · API {formatSeconds(entry.transcribeTime)}
                   </span>
                 )}
                 {entry.cost !== null && <span className="card-cost">{formatCost(entry.cost)}</span>}
