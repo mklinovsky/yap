@@ -40,8 +40,10 @@ pub struct HttpTranscriber {
 impl HttpTranscriber {
     pub fn new() -> Self {
         Self {
-            // reqwest's 30 s default is far too short to upload and transcribe a max-length recording.
+            // reqwest's 30 s default is far too short to upload and transcribe a max-length recording;
+            // the connect timeout keeps an unreachable endpoint from hanging for that long.
             client: reqwest::blocking::Client::builder()
+                .connect_timeout(Duration::from_secs(15))
                 .timeout(Duration::from_secs(15 * 60))
                 .build()
                 .expect("HTTP client"),
