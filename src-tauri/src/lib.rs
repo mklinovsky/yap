@@ -156,10 +156,13 @@ async fn toggle_recording(state: State<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn pause_shortcut(app: AppHandle) -> Result<(), String> {
+async fn pause_shortcut(app: AppHandle, state: State<'_>) -> Result<(), String> {
     app.global_shortcut()
         .unregister_all()
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // An unregistered shortcut never reports its release, which would leave a Hold recording running.
+    let _ = state.inputs.send(Input::Shortcut(ShortcutEvent::Released));
+    Ok(())
 }
 
 #[tauri::command]
@@ -338,12 +341,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_app, event| {
-        if let RunEvent::ExitRequested {
+    app.run(|app, event| match event {
+        RunEvent::ExitRequested {
             api, code: None, ..
-        } = event
-        {
-            api.prevent_exit();
-        }
+        } => api.prevent_exit(),
+        // Launching yap again while it runs; the way in when the menu bar icon is hidden.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => open_window(app),
+        _ => {}
     });
 }
