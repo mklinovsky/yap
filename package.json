@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "release": "scripts/release.sh",
     "test": "vitest run --passWithNoTests && cargo test --manifest-path src-tauri/Cargo.toml",
     "lint": "eslint . && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings && cargo fmt --manifest-path src-tauri/Cargo.toml --check"
   },

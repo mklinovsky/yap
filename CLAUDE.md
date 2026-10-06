@@ -17,13 +17,14 @@ Push-to-talk dictation for macOS (Windows/Linux possible later), in the spirit o
 | Lint (ESLint, clippy `-D warnings`, rustfmt check) | `pnpm lint` |
 | Typecheck | `pnpm exec tsc` (also part of `pnpm build`) |
 | Full release build + bundle | `pnpm tauri build` (`--no-bundle`, `--bundles app`, `--debug` variants) |
+| Publish a release | `pnpm release <patch\|minor\|major\|x.y.z>` |
 
 - Typecheck with `pnpm exec tsc`; `pnpm build` is `tsc && vite build` on purpose.
 - Do not run `pnpm tauri build` at the end of a change unless asked; lint + tests (+ tsc) is the finish line.
 - Run `cargo fmt` (in `src-tauri/`) after Rust edits, otherwise `pnpm lint` fails on the fmt check.
 - The first DMG bundling attempt once failed with a generic `bundle_dmg.sh` error and passed on rerun; cause unknown. A leftover `rw.*.dmg` in `target/release/bundle/macos/` can be deleted.
 - CI (`.github/workflows/ci.yml`): `pnpm build` (must precede cargo: `generate_context!` needs `dist/`), lint, test on macOS.
-- Release: bump the version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, then push a `v*` tag; `.github/workflows/release.yml` builds a universal DMG and publishes the GitHub release right away (`releaseDraft: false`). The bundle is ad-hoc signed (`bundle.macOS.signingIdentity: "-"`), not notarized, so downloaded copies need `xattr -dr com.apple.quarantine` or Open Anyway (README Install step). Without the ad-hoc seal (only the linker's signature on the binary), Gatekeeper reports "no usable signature" and macOS says "damaged" with no Open Anyway. `hardenedRuntime: false`: it only matters for notarization and would block the mic without the `audio-input` entitlement.
+- Release: `pnpm release` (`scripts/release.sh`) requires a clean `main`, runs build, lint and tests, bumps the version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.lock`, commits, tags `v*` and pushes both atomically; `.github/workflows/release.yml` builds a universal DMG and publishes the GitHub release right away (`releaseDraft: false`). The bundle is ad-hoc signed (`bundle.macOS.signingIdentity: "-"`), not notarized, so downloaded copies need `xattr -dr com.apple.quarantine` or Open Anyway (README Install step). Without the ad-hoc seal (only the linker's signature on the binary), Gatekeeper reports "no usable signature" and macOS says "damaged" with no Open Anyway. `hardenedRuntime: false`: it only matters for notarization and would block the mic without the `audio-input` entitlement.
 
 ## Working agreements
 
