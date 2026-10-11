@@ -1,3 +1,4 @@
+import { ShortcutRecorder } from "../components/ShortcutRecorder";
 import type { Transformations } from "../api";
 import { SecretInput } from "../components/SecretInput";
 
@@ -60,6 +61,20 @@ export function ConnectionGroup({
             />
           </div>
         )}
+        <div className="row">
+          <label className="row-label" htmlFor="instruction-shortcut">Dictated instruction shortcut</label>
+          <div className="shortcut-field">
+            <ShortcutRecorder
+              id="instruction-shortcut"
+              value={transformations.instructionShortcut ?? ""}
+              onChange={(instructionShortcut) => onChange({ instructionShortcut })}
+            />
+            {transformations.instructionShortcut && (
+              <button type="button" className="text-button" aria-label="Remove instruction shortcut"
+                onClick={() => onChange({ instructionShortcut: null })}>Remove</button>
+            )}
+          </div>
+        </div>
         <label className="row">
           <span className="row-label">Default model</span>
           <input
@@ -71,7 +86,10 @@ export function ConnectionGroup({
       </div>
       <p className="group-note">
         Transcripts are sent to this endpoint when a transformation runs. Pick one for the next
-        dictation from the yap menu bar icon, or press its shortcut.
+        dictation from the yap menu bar icon, or press its shortcut. The dictated instruction
+        shortcut executes what you say, optionally using selected text as context. It uses this
+        connection and default model when Enabled is on. Keep focus and any selection in the target
+        input until the result is pasted.
       </p>
     </section>
   );

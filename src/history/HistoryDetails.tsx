@@ -23,6 +23,8 @@ export function HistoryDetails({ entry }: { entry: HistoryEntry }) {
       `${formatCost(entry.transformCostInUsd)} LLM`,
     ]);
   const rows = [
+    { label: "Instruction", value: entry.instructionPrompt },
+    { label: "Selected text", value: entry.selectedText },
     { label: "Audio", value: audio },
     { label: "Timing", value: timing },
     { label: "Cost", value: cost },

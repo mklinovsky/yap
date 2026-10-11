@@ -9,6 +9,7 @@ Push-to-talk dictation for macOS. Press a global shortcut, speak, and the transc
 - Optional open at login
 - Multiple languages and custom vocabulary (`gpt-transcribe`)
 - Optional transformations: an LLM rewrites the transcript before pasting (any OpenAI-compatible `/chat/completions` endpoint)
+- Dictated instructions: a separate shortcut runs a spoken prompt, optionally with selected text
 - History with duration, cost and details (cost via LiteLLM's `x-litellm-response-cost` header)
 - Lives in the menu bar, no Dock icon
 
@@ -50,7 +51,17 @@ A transformation is a named prompt applied to the transcript before it is pasted
 - A transformation's shortcut dictates and applies it. The regular shortcut applies the transformation checked in the menu bar menu; with **Use once** checked, the menu goes back to None after one dictation.
 - If the transformation fails, nothing is pasted; the raw transcript is in History.
 
-With transformations on, transcripts are also sent to the transformation endpoint.
+### Dictated instructions
+
+Assign a **Dictated instruction shortcut** in Transformations and turn **Enabled** on. This shortcut uses the same connection, API key and default model as transformations, plus the existing dictation hold/toggle mode, microphone and recording limit.
+
+Select text in an editable input, activate the shortcut, and say an instruction such as “translate to Korean.” yap captures the selection when recording starts, transcribes your instruction, sends both to the transformation endpoint, and pastes the result over the selection. Without selected text, the spoken instruction runs alone—for example, “write a short birthday greeting.”
+
+Keep focus and any intended selection in the target input until processing finishes: the result is pasted into whichever input is active at that time. Selection capture first uses macOS Accessibility. If an input does not expose selected text (as can happen in Slack), yap sends Copy, waits for fresh clipboard content, and restores the previous clipboard formats. Unchanged clipboard contents are never used as context. An Accessibility or capture error stops the action rather than sending an instruction with missing context.
+
+The instruction shortcut leaves the menu bar's transformation pick and **Use once** unchanged. History identifies these entries as **Dictated instruction**; Details shows the spoken instruction and any selected text. If the model fails or returns no text, nothing is pasted and the instruction and context remain in History.
+
+With transformations on, transcripts are also sent to the transformation endpoint. Dictated instructions also send any captured selected text.
 
 Data, including the API keys in plain text, is stored in `~/Library/Application Support/com.mklinovsky.yap/yap.db`.
 

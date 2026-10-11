@@ -10,6 +10,7 @@ const stored: TransformationsData = {
   baseUrl: "https://llm.example.com/v1",
   reuseApiKey: true,
   defaultModel: "gpt-6-luna",
+  instructionShortcut: null,
   items: [
     {
       id: "t1",
@@ -222,4 +223,19 @@ test("Save is enabled only while there are unsaved changes", async () => {
 
   await screen.findByText("Saved");
   expect(save).toBeDisabled();
+});
+
+test("records and removes the dictated instruction shortcut", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Transformations />);
+  await user.click(await screen.findByLabelText("Dictated instruction shortcut"));
+  await user.keyboard("{Control>}{Alt>}[KeyI]{/Alt}{/Control}");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Saved");
+  expect(savedPayload(calls).instructionShortcut).toBe("Ctrl+Alt+I");
+  await user.click(screen.getByRole("button", { name: "Remove instruction shortcut" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Saved");
+  expect(savedPayload(calls).instructionShortcut).toBeNull();
 });

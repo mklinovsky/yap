@@ -418,6 +418,7 @@ fn fresh_store_has_transformations_disabled() {
             base_url: None,
             reuse_api_key: true,
             default_model: "gpt-6-luna".into(),
+            instruction_shortcut: None,
             items: vec![],
         }
     );
@@ -432,6 +433,7 @@ fn saved_transformations_survive_reopening_the_database() {
         base_url: Some("https://llm.example.com/v1".into()),
         reuse_api_key: false,
         default_model: "gpt-5".into(),
+        instruction_shortcut: None,
         items: vec![Transformation {
             system_prompt: "Summarize.".into(),
             user_template: "Text: {{transcript}}".into(),
@@ -806,4 +808,61 @@ fn first_history_at_is_the_oldest_entry_time() {
     std::fs::remove_file(&path).unwrap();
 
     assert_eq!((empty, first), (None, Some(1000)));
+}
+
+#[test]
+fn instruction_shortcut_defaults_to_unset_for_legacy_configuration() {
+    let config: Transformations = serde_json::from_str(r#"{"enabled":true,"items":[]}"#).unwrap();
+    assert_eq!(config.instruction_shortcut, None);
+}
+
+#[test]
+fn instruction_shortcut_survives_reopening_and_conflicts_are_rejected() {
+    let path = temp_db("instruction-config");
+    let mut config = Transformations {
+        instruction_shortcut: Some("Ctrl+Alt+I".into()),
+        ..Transformations::default()
+    };
+    Store::open(&path)
+        .unwrap()
+        .save_transformations(&config)
+        .unwrap();
+    assert_eq!(
+        Store::open(&path).unwrap().transformations().unwrap(),
+        config
+    );
+    assert!(config.validate("Ctrl+Alt+I").is_err());
+    config.items.push(Transformation {
+        shortcut: Some("Ctrl+Alt+I".into()),
+        ..transformation("t1", "Translate")
+    });
+    assert!(config.validate("Ctrl+Alt+D").is_err());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn instruction_history_survives_reopening_and_old_entries_have_no_context() {
+    let path = temp_db("instruction-history");
+    rusqlite::Connection::open(&path).unwrap().execute_batch(
+        "CREATE TABLE history (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, created_at INTEGER NOT NULL); INSERT INTO history (text, created_at) VALUES ('old', 1);"
+    ).unwrap();
+    let store = Store::open(&path).unwrap();
+    store
+        .add_history(&NewHistoryEntry {
+            text: "translated".into(),
+            instruction_prompt: Some("translate to Korean".into()),
+            selected_text: Some("source text".into()),
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
+    drop(store);
+    let rows = Store::open(&path).unwrap().history().unwrap();
+    assert_eq!(
+        rows[0].instruction_prompt.as_deref(),
+        Some("translate to Korean")
+    );
+    assert_eq!(rows[0].selected_text.as_deref(), Some("source text"));
+    assert_eq!(rows[1].instruction_prompt, None);
+    assert_eq!(rows[1].selected_text, None);
+    std::fs::remove_file(path).unwrap();
 }

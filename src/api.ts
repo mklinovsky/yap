@@ -31,6 +31,7 @@ export interface Transformations {
   baseUrl: string | null;
   reuseApiKey: boolean;
   defaultModel: string;
+  instructionShortcut: string | null;
   items: Transformation[];
 }
 
@@ -48,6 +49,8 @@ export interface HistoryEntry {
   sizeInBytes: number | null;
   encodeTimeInSeconds: number | null;
   transcribeTimeInSeconds: number | null;
+  instructionPrompt: string | null;
+  selectedText: string | null;
   rawText: string | null;
   transformationName: string | null;
   transformError: string | null;

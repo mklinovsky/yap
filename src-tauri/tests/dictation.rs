@@ -10,6 +10,20 @@ use yap_lib::store::{Mode, Settings, Store, Transformation, Transformations, Tra
 use yap_lib::transcriber::{TranscribeRequest, Transcriber, Transcription};
 use yap_lib::transformer::{TransformRequest, Transformed, Transformer};
 
+#[derive(Default)]
+struct FakeSelection {
+    text: Mutex<Option<String>>,
+    error: Mutex<Option<String>>,
+}
+impl yap_lib::dictation::SelectionReader for FakeSelection {
+    fn selected_text(&self) -> Result<Option<String>, String> {
+        if let Some(error) = self.error.lock().unwrap().clone() {
+            return Err(error);
+        }
+        Ok(self.text.lock().unwrap().clone())
+    }
+}
+
 struct FakeRecorder {
     next: Mutex<Recording>,
     opened: Mutex<Vec<Option<String>>>,
@@ -177,6 +191,7 @@ struct Harness {
     dictation: Dictation,
     store: Arc<Store>,
     recorder: Arc<FakeRecorder>,
+    selection: Arc<FakeSelection>,
     transcriber: Arc<FakeTranscriber>,
     transformer: Arc<FakeTransformer>,
     secrets: Arc<FakeSecrets>,
@@ -200,6 +215,7 @@ impl Harness {
     }
 
     fn on_store(store: Arc<Store>, api_key: Option<&str>) -> Self {
+        let selection = Arc::new(FakeSelection::default());
         let recorder = Arc::new(FakeRecorder {
             next: Mutex::new(speech()),
             opened: Mutex::default(),
@@ -234,6 +250,7 @@ impl Harness {
         let dictation = Dictation::new(Deps {
             store: store.clone(),
             recorder: recorder.clone(),
+            selection: selection.clone(),
             transcriber: transcriber.clone(),
             transformer: transformer.clone(),
             paster: paster.clone(),
@@ -247,6 +264,7 @@ impl Harness {
             dictation,
             store,
             recorder,
+            selection,
             transcriber,
             transformer,
             secrets,
@@ -1133,4 +1151,160 @@ fn tray_hears_about_every_pick() {
             }
         ]
     );
+}
+
+#[test]
+fn dictated_instruction_without_selection_uses_transformer() {
+    let h = Harness::with_fix_grammar_and_translate();
+    h.dictate(Apply::Instruction);
+    assert_eq!(h.transformed(), 1);
+    assert_eq!(h.pasted(), vec!["Hello, world."]);
+    let sent = h.transformer.sent.lock().unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&sent[0].user_message).unwrap(),
+        serde_json::json!({"instruction": "hello world"})
+    );
+    assert_eq!(sent[0].model, "gpt-6-luna");
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!(entry.instruction_prompt.as_deref(), Some("hello world"));
+    assert_eq!(entry.selected_text, None);
+}
+
+#[test]
+fn instruction_uses_selection_at_start_and_does_not_consume_tray_pick() {
+    let h = Harness::with_fix_grammar_and_translate();
+    h.dictation.select(Some("t1".into()));
+    *h.selection.text.lock().unwrap() = Some("Hello {{transcript}} \"friend\"".into());
+    *h.transcriber.reply.lock().unwrap() = Ok(transcript("translate to Korean"));
+    h.dictation.handle(Pressed(Apply::Instruction));
+    *h.selection.text.lock().unwrap() = Some("changed selection".into());
+    h.dictation.handle(Released);
+    h.run_background_jobs();
+    let sent = h.transformer.sent.lock().unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&sent[0].user_message).unwrap(),
+        serde_json::json!({"instruction": "translate to Korean", "selectedText": "Hello {{transcript}} \"friend\""})
+    );
+    assert_eq!(h.dictation.tray_state().selected.as_deref(), Some("t1"));
+    assert!(h.dictation.tray_state().use_once);
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!(
+        entry.instruction_prompt.as_deref(),
+        Some("translate to Korean")
+    );
+    assert_eq!(
+        entry.selected_text.as_deref(),
+        Some("Hello {{transcript}} \"friend\"")
+    );
+    assert_eq!(
+        entry.transformation_name.as_deref(),
+        Some("Dictated instruction")
+    );
+}
+
+#[test]
+fn instruction_uses_the_shared_connection_and_default_model() {
+    let h = Harness::with_fix_grammar_and_translate();
+    let mut config = transformations();
+    config.base_url = Some("https://agent.example/v1".into());
+    config.reuse_api_key = false;
+    config.default_model = "agent-model".into();
+    h.store.save_transformations(&config).unwrap();
+    *h.secrets.transform_api_key.lock().unwrap() = Some("agent-key".into());
+    h.dictate(Apply::Instruction);
+    let sent = h.transformer.sent.lock().unwrap();
+    assert_eq!(
+        (&*sent[0].base_url, &*sent[0].api_key, &*sent[0].model),
+        ("https://agent.example/v1", "agent-key", "agent-model")
+    );
+}
+
+#[test]
+fn failed_or_blank_instruction_response_keeps_context_and_pastes_nothing() {
+    for reply in [
+        Err(ApiError::InvalidResponse("broken reply".into())),
+        Ok(Transformed {
+            text: "  ".into(),
+            cost_in_usd: Some(0.001),
+        }),
+    ] {
+        let h = Harness::with_fix_grammar_and_translate();
+        *h.selection.text.lock().unwrap() = Some("source text".into());
+        *h.transformer.reply.lock().unwrap() = reply;
+        h.dictate(Apply::Instruction);
+        assert!(h.pasted().is_empty());
+        assert!(matches!(h.dictation.status(), Status::Error(_)));
+        let entry = h.store.history().unwrap().remove(0);
+        assert_eq!(entry.instruction_prompt.as_deref(), Some("hello world"));
+        assert_eq!(entry.selected_text.as_deref(), Some("source text"));
+        assert!(entry.transform_error.is_some());
+    }
+}
+
+#[test]
+fn instruction_missing_key_or_disabled_connection_does_not_record() {
+    for disabled in [true, false] {
+        let h = Harness::with_fix_grammar_and_translate();
+        let mut config = transformations();
+        config.enabled = !disabled;
+        config.reuse_api_key = false;
+        h.store.save_transformations(&config).unwrap();
+        h.dictation.handle(Pressed(Apply::Instruction));
+        assert!(matches!(h.dictation.status(), Status::Error(_)));
+        assert!(h.recorder.opened.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn selection_read_error_does_not_send_an_instruction_without_its_context() {
+    let h = Harness::with_fix_grammar_and_translate();
+    *h.selection.error.lock().unwrap() = Some("Accessibility unavailable".into());
+    h.dictate(Apply::Instruction);
+    assert_eq!(
+        h.dictation.status(),
+        Status::Error("Accessibility unavailable".into())
+    );
+    assert!(h.recorder.opened.lock().unwrap().is_empty());
+    assert_eq!(h.transformed(), 0);
+}
+
+#[test]
+fn blank_instruction_and_silence_do_not_call_transformer() {
+    for silent in [true, false] {
+        let h = Harness::with_fix_grammar_and_translate();
+        if silent {
+            h.recorder.next.lock().unwrap().samples.fill(0.0);
+        } else {
+            *h.transcriber.reply.lock().unwrap() = Ok(transcript("  "));
+        }
+        h.dictate(Apply::Instruction);
+        assert_eq!(h.dictation.status(), Status::Idle);
+        assert_eq!(h.transformed(), 0);
+        assert!(h.store.history().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn toggled_instruction_autostops_and_next_dictation_has_no_context() {
+    let h = Harness::with_fix_grammar_and_translate();
+    h.store
+        .save_settings(&Settings {
+            mode: Mode::Toggle,
+            ..Settings::default()
+        })
+        .unwrap();
+    *h.selection.text.lock().unwrap() = Some("source".into());
+    h.dictation.handle(Pressed(Apply::Instruction));
+    h.dictation.handle(Released);
+    assert_eq!(h.dictation.status(), Status::Recording);
+    h.fire_timer(0);
+    h.run_background_jobs();
+    assert_eq!(h.transformed(), 1);
+    h.dictation.handle(Pressed(TrayPick));
+    h.dictation.handle(Pressed(TrayPick));
+    h.run_background_jobs();
+    assert_eq!(h.pasted(), ["Hello, world.", "hello world"]);
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!(entry.selected_text, None);
+    assert_eq!(entry.instruction_prompt, None);
 }
