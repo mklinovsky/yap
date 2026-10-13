@@ -98,6 +98,7 @@ pub struct Transformations {
     pub base_url: Option<String>,
     pub reuse_api_key: bool,
     pub default_model: String,
+    pub instruction_shortcut: Option<String>,
     pub items: Vec<Transformation>,
 }
 
@@ -108,6 +109,7 @@ impl Default for Transformations {
             base_url: None,
             reuse_api_key: true,
             default_model: "gpt-6-luna".into(),
+            instruction_shortcut: None,
             items: Vec::new(),
         }
     }
@@ -115,6 +117,22 @@ impl Default for Transformations {
 
 impl Transformations {
     pub fn validate(&self, dictation_shortcut: &str) -> Result<(), String> {
+        if let Some(shortcut) = &self.instruction_shortcut {
+            if shortcut == dictation_shortcut {
+                return Err(
+                    "The dictated instruction shortcut is already the dictation shortcut.".into(),
+                );
+            }
+            if self
+                .items
+                .iter()
+                .any(|item| item.shortcut.as_ref() == Some(shortcut))
+            {
+                return Err(
+                    "The dictated instruction shortcut is already used by a transformation.".into(),
+                );
+            }
+        }
         for (index, item) in self.items.iter().enumerate() {
             if item.name.trim().is_empty() {
                 return Err("Every transformation needs a name.".into());
@@ -177,6 +195,8 @@ pub struct HistoryEntry {
     pub size_in_bytes: Option<i64>,
     pub encode_time_in_seconds: Option<f64>,
     pub transcribe_time_in_seconds: Option<f64>,
+    pub instruction_prompt: Option<String>,
+    pub selected_text: Option<String>,
     pub raw_text: Option<String>,
     pub transformation_name: Option<String>,
     pub transform_error: Option<String>,
@@ -192,6 +212,8 @@ pub struct NewHistoryEntry {
     pub size_in_bytes: i64,
     pub encode_time_in_seconds: f64,
     pub transcribe_time_in_seconds: f64,
+    pub instruction_prompt: Option<String>,
+    pub selected_text: Option<String>,
     pub raw_text: Option<String>,
     pub transformation_name: Option<String>,
     pub transform_error: Option<String>,
@@ -254,12 +276,15 @@ CREATE TABLE IF NOT EXISTS history (
     transformation TEXT,
     transform_error TEXT,
     transform_cost REAL,
-    transform_time REAL
+    transform_time REAL,
+    instruction_prompt TEXT,
+    selected_text TEXT
 );
 ";
 
 const HISTORY_COLUMNS: &str = "id, text, created_at, cost, duration, size, encode_time,
-    transcribe_time, raw_text, transformation, transform_error, transform_cost, transform_time";
+    transcribe_time, raw_text, transformation, transform_error, transform_cost, transform_time,
+    instruction_prompt, selected_text";
 
 const API_KEY: &str = "api_key";
 const TRANSFORM_API_KEY: &str = "transform_api_key";
@@ -318,9 +343,9 @@ impl Store {
             &format!(
                 "INSERT INTO history (text, created_at, cost, duration, size, encode_time,
                      transcribe_time, raw_text, transformation, transform_error, transform_cost,
-                     transform_time)
+                     transform_time, instruction_prompt, selected_text)
                  VALUES (?1, CAST(unixepoch('subsec') * 1000 AS INTEGER), ?2, ?3, ?4, ?5, ?6, ?7,
-                     ?8, ?9, ?10, ?11)
+                     ?8, ?9, ?10, ?11, ?12, ?13)
                  RETURNING {HISTORY_COLUMNS}"
             ),
             rusqlite::params![
@@ -334,7 +359,9 @@ impl Store {
                 entry.transformation_name,
                 entry.transform_error,
                 entry.transform_cost_in_usd,
-                entry.transform_time_in_seconds
+                entry.transform_time_in_seconds,
+                entry.instruction_prompt,
+                entry.selected_text
             ],
             history_entry,
         )?)
@@ -523,6 +550,8 @@ fn migrate(conn: &Connection) -> Result<(), StoreError> {
         ("transform_error", "TEXT"),
         ("transform_cost", "REAL"),
         ("transform_time", "REAL"),
+        ("instruction_prompt", "TEXT"),
+        ("selected_text", "TEXT"),
     ] {
         let exists: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM pragma_table_info('history') WHERE name = ?1)",
@@ -574,5 +603,7 @@ fn history_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
         transform_error: row.get(10)?,
         transform_cost_in_usd: row.get(11)?,
         transform_time_in_seconds: row.get(12)?,
+        instruction_prompt: row.get(13)?,
+        selected_text: row.get(14)?,
     })
 }

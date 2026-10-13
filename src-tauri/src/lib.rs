@@ -3,6 +3,7 @@ pub mod dictation;
 pub mod http;
 pub mod paster;
 pub mod recorder;
+pub mod selection;
 pub mod store;
 pub mod transcriber;
 pub mod transformer;
@@ -276,7 +277,15 @@ fn bindings(
         parse_shortcut(&settings.shortcut)?,
         Apply::TrayPick,
     )];
+    transformations.validate(&settings.shortcut)?;
     if transformations.enabled {
+        if let Some(shortcut) = &transformations.instruction_shortcut {
+            bindings.push((
+                shortcut.clone(),
+                parse_shortcut(shortcut)?,
+                Apply::Instruction,
+            ));
+        }
         for item in &transformations.items {
             if let Some(shortcut) = &item.shortcut {
                 bindings.push((
@@ -285,6 +294,12 @@ fn bindings(
                     Apply::Transformation(item.id.clone()),
                 ));
             }
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for (_, shortcut, _) in &bindings {
+        if !seen.insert(shortcut.id()) {
+            return Err("Two actions use the same shortcut.".into());
         }
     }
     Ok(bindings)
@@ -462,6 +477,7 @@ pub fn run() {
             let dictation = Dictation::new(Deps {
                 store: store.clone(),
                 recorder: Arc::new(CpalRecorder::default()),
+                selection: Arc::new(selection::SystemSelectionReader),
                 transcriber: Arc::new(HttpTranscriber::new()),
                 transformer: Arc::new(HttpTransformer::new()),
                 paster: paster.clone(),

@@ -67,6 +67,8 @@ async function scrollToEnd() {
 }
 
 const plain = {
+  instructionPrompt: null,
+  selectedText: null,
   rawText: null,
   transformationName: null,
   transformError: null,
@@ -349,4 +351,17 @@ test("a transcript that fits has nothing to expand", async () => {
 
   const [card] = await screen.findAllByRole("listitem");
   expect(within(card).queryByRole("button", { name: "Show more" })).toBeNull();
+});
+
+test("instruction history shows the prompt and optional selected text in Details", async () => {
+  const user = userEvent.setup();
+  mockBackend([{ ...entries[0], text: "안녕하세요", transformationName: "Dictated instruction",
+    rawText: "translate to Korean", instructionPrompt: "translate to Korean", selectedText: "Hello" }]);
+  render(<History />);
+  expect(await screen.findByText("Dictated instruction")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Details" }));
+  const card = screen.getByRole("listitem");
+  expect(detail(card, "Instruction")).toBe("translate to Korean");
+  expect(detail(card, "Selected text")).toBe("Hello");
+  expect(screen.queryByTitle("Raw transcript")).toBeNull();
 });

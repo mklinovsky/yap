@@ -79,7 +79,7 @@ export function HistoryCard({ entry, onDelete }: { entry: HistoryEntry; onDelete
       <p ref={textRef} className={expanded ? undefined : "clamped"}>
         {entry.text}
       </p>
-      {entry.rawText !== null && (
+      {entry.rawText !== null && !entry.instructionPrompt && (
         <blockquote
           ref={rawRef}
           className={expanded ? "card-raw" : "card-raw clamped"}
