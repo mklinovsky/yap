@@ -25,6 +25,12 @@ export function HistoryDetails({ entry }: { entry: HistoryEntry }) {
   const rows = [
     { label: "Instruction", value: entry.instructionPrompt },
     { label: "Selected text", value: entry.selectedText },
+    {
+      label: "Provider",
+      value: entry.transformProvider === "claude"
+        ? "Claude Code (subscription)"
+        : entry.transformProvider === "api" ? "OpenAI-compatible API" : null,
+    },
     { label: "Audio", value: audio },
     { label: "Timing", value: timing },
     { label: "Cost", value: cost },

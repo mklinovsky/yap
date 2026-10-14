@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod claude_cli;
 pub mod dictation;
 pub mod http;
 pub mod paster;
@@ -24,7 +25,7 @@ use paster::ClipboardPaster;
 use recorder::CpalRecorder;
 use store::{HistoryEntry, Settings, Stats, Store, Theme, Transformations};
 use transcriber::HttpTranscriber;
-use transformer::HttpTransformer;
+use transformer::ProviderTransformer;
 use tray::{dot, TrayFeedback, MENU_OPEN, MENU_PICK_PREFIX, MENU_QUIT, MENU_USE_ONCE};
 
 struct ThreadSpawner;
@@ -152,6 +153,27 @@ async fn save_transformations(
         .map_err(|e| e.to_string())?;
     state.dictation.clear_pick_if_deleted();
     state.feedback.rebuild().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn test_claude_connection(
+    executable: Option<String>,
+    model: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use transformer::{TransformConnection, TransformRequest, Transformer};
+        claude_cli::ClaudeCliTransformer::default()
+            .transform(TransformRequest {
+                connection: TransformConnection::Claude { executable },
+                model,
+                system_prompt: "Reply with only OK.".into(),
+                user_message: "Connection test. Reply with only OK.".into(),
+            })
+            .map(|_| "Connected to Claude Code with subscription authentication.".into())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -419,6 +441,7 @@ pub fn run() {
             get_settings,
             save_settings,
             get_transformations,
+            test_claude_connection,
             save_transformations,
             transform_api_key_preview,
             set_transform_api_key,
@@ -479,7 +502,7 @@ pub fn run() {
                 recorder: Arc::new(CpalRecorder::default()),
                 selection: Arc::new(selection::SystemSelectionReader),
                 transcriber: Arc::new(HttpTranscriber::new()),
-                transformer: Arc::new(HttpTransformer::new()),
+                transformer: Arc::new(ProviderTransformer::default()),
                 paster: paster.clone(),
                 feedback: feedback.clone(),
                 secrets: store.clone(),

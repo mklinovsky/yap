@@ -2,9 +2,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::http::{self, ApiError};
 
+pub enum TransformConnection {
+    Api { base_url: String, api_key: String },
+    Claude { executable: Option<String> },
+}
+
 pub struct TransformRequest {
-    pub base_url: String,
-    pub api_key: String,
+    pub connection: TransformConnection,
     pub model: String,
     pub system_prompt: String,
     pub user_message: String,
@@ -16,8 +20,31 @@ pub struct Transformed {
     pub cost_in_usd: Option<f64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TransformError {
+    #[error(transparent)]
+    Api(#[from] ApiError),
+    #[error("{0}")]
+    Cli(String),
+}
+
+#[derive(Default)]
+pub struct ProviderTransformer {
+    http: HttpTransformer,
+    claude: crate::claude_cli::ClaudeCliTransformer,
+}
+
+impl Transformer for ProviderTransformer {
+    fn transform(&self, request: TransformRequest) -> Result<Transformed, TransformError> {
+        match &request.connection {
+            TransformConnection::Api { .. } => self.http.transform(request),
+            TransformConnection::Claude { .. } => self.claude.transform(request),
+        }
+    }
+}
+
 pub trait Transformer: Send + Sync {
-    fn transform(&self, request: TransformRequest) -> Result<Transformed, ApiError>;
+    fn transform(&self, request: TransformRequest) -> Result<Transformed, TransformError>;
 }
 
 pub struct HttpTransformer {
@@ -66,7 +93,12 @@ struct ReplyMessage {
 }
 
 impl Transformer for HttpTransformer {
-    fn transform(&self, request: TransformRequest) -> Result<Transformed, ApiError> {
+    fn transform(&self, request: TransformRequest) -> Result<Transformed, TransformError> {
+        let TransformConnection::Api { base_url, api_key } = &request.connection else {
+            return Err(TransformError::Cli(
+                "HTTP transformer requires an API connection".into(),
+            ));
+        };
         let mut messages = Vec::new();
         if !request.system_prompt.trim().is_empty() {
             messages.push(Message {
@@ -80,13 +112,14 @@ impl Transformer for HttpTransformer {
         });
         let response = self
             .client
-            .post(http::endpoint(&request.base_url, "chat/completions"))
-            .bearer_auth(&request.api_key)
+            .post(http::endpoint(base_url, "chat/completions"))
+            .bearer_auth(api_key)
             .json(&Body {
                 model: &request.model,
                 messages,
             })
-            .send()?;
+            .send()
+            .map_err(ApiError::from)?;
         let (body, cost) = http::body_and_cost_in_usd(response)?;
         let reply = serde_json::from_str::<Reply>(&body)
             .map_err(|error| ApiError::InvalidResponse(error.to_string()))?;

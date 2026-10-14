@@ -11,6 +11,9 @@ const stored: TransformationsData = {
   reuseApiKey: true,
   defaultModel: "gpt-6-luna",
   instructionShortcut: null,
+  provider: "api",
+  claudeExecutable: null,
+  claudeDefaultModel: "sonnet",
   items: [
     {
       id: "t1",
@@ -18,6 +21,7 @@ const stored: TransformationsData = {
       systemPrompt: "Fix grammar.",
       userTemplate: "",
       model: null,
+      claudeModel: null,
       shortcut: "Ctrl+Alt+G",
     },
     {
@@ -26,6 +30,7 @@ const stored: TransformationsData = {
       systemPrompt: "Translate to English.",
       userTemplate: "Text: {{transcript}}",
       model: "gpt-5",
+      claudeModel: null,
       shortcut: null,
     },
   ],
@@ -139,6 +144,7 @@ test("adds a transformation in the editor", async () => {
     systemPrompt: "Make a bullet list.",
     userTemplate: "Notes: {{transcript}}",
     model: "gpt-5-nano",
+    claudeModel: null,
     shortcut: null,
   });
 });
@@ -238,4 +244,78 @@ test("records and removes the dictated instruction shortcut", async () => {
   await user.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByText("Saved");
   expect(savedPayload(calls).instructionShortcut).toBeNull();
+});
+
+test("Claude provider hides API settings and preserves them when switching back", async () => {
+  const user = userEvent.setup();
+  mockBackend();
+  render(<Transformations />);
+  await screen.findByLabelText("Enabled");
+  await user.selectOptions(screen.getByLabelText("Provider"), "claude");
+  expect(screen.queryByLabelText("Base URL")).toBeNull();
+  expect(screen.queryByLabelText("Use transcription API key")).toBeNull();
+  expect(screen.getByLabelText("Default model")).toHaveValue("sonnet");
+  expect(screen.getByLabelText("Claude executable")).toBeInTheDocument();
+  await user.selectOptions(screen.getByLabelText("Provider"), "api");
+  expect(screen.getByLabelText("Base URL")).toHaveValue(stored.baseUrl);
+  expect(screen.getByLabelText("Default model")).toHaveValue(stored.defaultModel);
+});
+
+test("Claude transformations have independent model overrides", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Transformations />);
+  await screen.findByLabelText("Enabled");
+  await user.selectOptions(screen.getByLabelText("Provider"), "claude");
+  await user.click(screen.getByRole("button", { name: "Edit Translate" }));
+  expect(screen.getByLabelText("Model")).toHaveValue("");
+  await user.type(screen.getByLabelText("Model"), "opus");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Saved");
+  expect(savedPayload(calls).items[1]).toMatchObject({ model: "gpt-5", claudeModel: "opus" });
+});
+
+test("connection test uses unsaved Claude settings and shows the result", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend({
+    test_claude_connection: () => "Connected to Claude Code with subscription authentication.",
+  });
+  render(<Transformations />);
+  await screen.findByLabelText("Enabled");
+  await user.selectOptions(screen.getByLabelText("Provider"), "claude");
+  await user.type(screen.getByLabelText("Claude executable"), "/custom/claude");
+  await user.click(screen.getByRole("button", { name: "Test connection" }));
+  expect(await screen.findByRole("status", { name: "Claude connection status" })).toHaveTextContent("Connected to Claude Code");
+  expect(calls.find((call) => call.cmd === "test_claude_connection")?.payload).toEqual({
+    executable: "/custom/claude", model: "sonnet",
+  });
+  expect(calls.filter((call) => call.cmd === "save_transformations")).toHaveLength(0);
+});
+
+test("connection test reports login failures", async () => {
+  const user = userEvent.setup();
+  mockBackend({ test_claude_connection: () => { throw "Subscription login required"; } });
+  render(<Transformations />);
+  await screen.findByLabelText("Enabled");
+  await user.selectOptions(screen.getByLabelText("Provider"), "claude");
+  await user.click(screen.getByRole("button", { name: "Test connection" }));
+  expect(await screen.findByRole("status", { name: "Claude connection status" })).toHaveTextContent("Subscription login required");
+  expect(screen.getByRole("button", { name: "Test connection" })).toBeEnabled();
+});
+
+test("Claude keeps the dictated instruction shortcut visible and saves it with provider settings", async () => {
+  const user = userEvent.setup();
+  const calls = mockBackend();
+  render(<Transformations />);
+  await screen.findByLabelText("Enabled");
+  await user.selectOptions(screen.getByLabelText("Provider"), "claude");
+  await user.click(screen.getByLabelText("Dictated instruction shortcut"));
+  await user.keyboard("{Control>}{Alt>}[KeyI]{/Alt}{/Control}");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Saved");
+  expect(savedPayload(calls)).toMatchObject({ provider: "claude", instructionShortcut: "Ctrl+Alt+I" });
+  await user.click(screen.getByRole("button", { name: "Remove instruction shortcut" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText("Saved");
+  expect(savedPayload(calls)).toMatchObject({ provider: "claude", instructionShortcut: null });
 });

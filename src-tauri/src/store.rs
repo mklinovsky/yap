@@ -75,6 +75,8 @@ pub struct Transformation {
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
+    pub claude_model: Option<String>,
+    #[serde(default)]
     pub shortcut: Option<String>,
 }
 
@@ -91,9 +93,29 @@ impl Transformation {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TransformProvider {
+    #[default]
+    Api,
+    Claude,
+}
+
+impl TransformProvider {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Api => "api",
+            Self::Claude => "claude",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Transformations {
+    pub provider: TransformProvider,
+    pub claude_executable: Option<String>,
+    pub claude_default_model: String,
     pub enabled: bool,
     pub base_url: Option<String>,
     pub reuse_api_key: bool,
@@ -105,6 +127,9 @@ pub struct Transformations {
 impl Default for Transformations {
     fn default() -> Self {
         Self {
+            provider: TransformProvider::Api,
+            claude_executable: None,
+            claude_default_model: "sonnet".into(),
             enabled: false,
             base_url: None,
             reuse_api_key: true,
@@ -202,6 +227,7 @@ pub struct HistoryEntry {
     pub transform_error: Option<String>,
     pub transform_cost_in_usd: Option<f64>,
     pub transform_time_in_seconds: Option<f64>,
+    pub transform_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -219,6 +245,7 @@ pub struct NewHistoryEntry {
     pub transform_error: Option<String>,
     pub transform_cost_in_usd: Option<f64>,
     pub transform_time_in_seconds: Option<f64>,
+    pub transform_provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -278,13 +305,14 @@ CREATE TABLE IF NOT EXISTS history (
     transform_cost REAL,
     transform_time REAL,
     instruction_prompt TEXT,
-    selected_text TEXT
+    selected_text TEXT,
+    transform_provider TEXT
 );
 ";
 
 const HISTORY_COLUMNS: &str = "id, text, created_at, cost, duration, size, encode_time,
     transcribe_time, raw_text, transformation, transform_error, transform_cost, transform_time,
-    instruction_prompt, selected_text";
+    instruction_prompt, selected_text, transform_provider";
 
 const API_KEY: &str = "api_key";
 const TRANSFORM_API_KEY: &str = "transform_api_key";
@@ -343,9 +371,9 @@ impl Store {
             &format!(
                 "INSERT INTO history (text, created_at, cost, duration, size, encode_time,
                      transcribe_time, raw_text, transformation, transform_error, transform_cost,
-                     transform_time, instruction_prompt, selected_text)
+                     transform_time, instruction_prompt, selected_text, transform_provider)
                  VALUES (?1, CAST(unixepoch('subsec') * 1000 AS INTEGER), ?2, ?3, ?4, ?5, ?6, ?7,
-                     ?8, ?9, ?10, ?11, ?12, ?13)
+                     ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  RETURNING {HISTORY_COLUMNS}"
             ),
             rusqlite::params![
@@ -361,7 +389,8 @@ impl Store {
                 entry.transform_cost_in_usd,
                 entry.transform_time_in_seconds,
                 entry.instruction_prompt,
-                entry.selected_text
+                entry.selected_text,
+                entry.transform_provider
             ],
             history_entry,
         )?)
@@ -552,6 +581,7 @@ fn migrate(conn: &Connection) -> Result<(), StoreError> {
         ("transform_time", "REAL"),
         ("instruction_prompt", "TEXT"),
         ("selected_text", "TEXT"),
+        ("transform_provider", "TEXT"),
     ] {
         let exists: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM pragma_table_info('history') WHERE name = ?1)",
@@ -605,5 +635,6 @@ fn history_entry(row: &rusqlite::Row) -> rusqlite::Result<HistoryEntry> {
         transform_time_in_seconds: row.get(12)?,
         instruction_prompt: row.get(13)?,
         selected_text: row.get(14)?,
+        transform_provider: row.get(15)?,
     })
 }

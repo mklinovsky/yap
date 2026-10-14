@@ -33,6 +33,9 @@ function mockBackend() {
             baseUrl: null,
             reuseApiKey: true,
             defaultModel: "gpt-6-luna",
+            provider: "api",
+            claudeExecutable: null,
+            claudeDefaultModel: "sonnet",
             items: [],
           };
         default:

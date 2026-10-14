@@ -53,6 +53,7 @@ export function Transformations() {
       systemPrompt: "",
       userTemplate: "",
       model: null,
+      claudeModel: null,
       shortcut: null,
     };
     update({ items: [...draft.items, item] });
@@ -73,7 +74,8 @@ export function Transformations() {
           {editingItem ? (
             <TransformationEditor
               item={editingItem}
-              defaultModel={draft.defaultModel}
+              provider={draft.provider}
+              defaultModel={draft.provider === "claude" ? draft.claudeDefaultModel : draft.defaultModel}
               onChange={(patch) => updateItem(editingItem.id, patch)}
               onBack={() => setEditing(null)}
             />
@@ -87,7 +89,12 @@ export function Transformations() {
                 onChange={update}
                 onApiKeyChange={setApiKey}
               />
-              <TransformationList items={draft.items} onEdit={setEditing} onAdd={add} />
+              <TransformationList
+                provider={draft.provider}
+                items={draft.items}
+                onEdit={setEditing}
+                onAdd={add}
+              />
             </>
           )}
         </div>
