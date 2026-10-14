@@ -23,10 +23,16 @@ export interface Transformation {
   systemPrompt: string;
   userTemplate: string;
   model: string | null;
+  claudeModel: string | null;
   shortcut: string | null;
 }
 
+export type TransformProvider = "api" | "claude";
+
 export interface Transformations {
+  provider: TransformProvider;
+  claudeExecutable: string | null;
+  claudeDefaultModel: string;
   enabled: boolean;
   baseUrl: string | null;
   reuseApiKey: boolean;
@@ -56,6 +62,7 @@ export interface HistoryEntry {
   transformError: string | null;
   transformCostInUsd: number | null;
   transformTimeInSeconds: number | null;
+  transformProvider: TransformProvider | null;
 }
 
 export interface Usage {
@@ -89,6 +96,8 @@ export const api = {
   getTransformations: () => invoke<Transformations>("get_transformations"),
   saveTransformations: (transformations: Transformations) =>
     invoke<void>("save_transformations", { transformations }),
+  testClaudeConnection: (executable: string | null, model: string) =>
+    invoke<string>("test_claude_connection", { executable, model }),
   transformApiKeyPreview: () => invoke<string | null>("transform_api_key_preview"),
   setTransformApiKey: (key: string) => invoke<void>("set_transform_api_key", { key }),
   getOpenAtLogin: () => invoke<boolean>("get_open_at_login"),

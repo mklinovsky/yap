@@ -1,13 +1,15 @@
-import type { Transformation } from "../api";
+import type { Transformation, TransformProvider } from "../api";
 import { ShortcutRecorder } from "../components/ShortcutRecorder";
 
 export function TransformationEditor({
   item,
+  provider,
   defaultModel,
   onChange,
   onBack,
 }: {
   item: Transformation;
+  provider: TransformProvider;
   defaultModel: string;
   onChange: (patch: Partial<Transformation>) => void;
   onBack: () => void;
@@ -35,10 +37,14 @@ export function TransformationEditor({
           <label className="row">
             <span className="row-label">Model</span>
             <input
-              value={item.model ?? ""}
+              value={(provider === "claude" ? item.claudeModel : item.model) ?? ""}
               spellCheck={false}
               placeholder={`${defaultModel} (default)`}
-              onChange={(e) => onChange({ model: e.target.value === "" ? null : e.target.value })}
+              onChange={(e) => onChange(
+                provider === "claude"
+                  ? { claudeModel: e.target.value || null }
+                  : { model: e.target.value || null },
+              )}
             />
           </label>
           <div className="row">

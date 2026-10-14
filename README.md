@@ -8,7 +8,7 @@ Push-to-talk dictation for macOS. Press a global shortcut, speak, and the transc
 - Restores your previous clipboard after pasting
 - Optional open at login
 - Multiple languages and custom vocabulary (`gpt-transcribe`)
-- Optional transformations: an LLM rewrites the transcript before pasting (any OpenAI-compatible `/chat/completions` endpoint)
+- Optional transformations: an LLM rewrites the transcript before pasting (an OpenAI-compatible `/chat/completions` endpoint or Claude Code with your subscription)
 - Dictated instructions: a separate shortcut runs a spoken prompt, optionally with selected text
 - History with duration, cost and details (cost via LiteLLM's `x-litellm-response-cost` header)
 - Lives in the menu bar, no Dock icon
@@ -46,22 +46,33 @@ Settings opens on first launch:
 
 A transformation is a named prompt applied to the transcript before it is pasted: fix grammar, translate, turn notes into bullet points. Set them up in the Transformations section:
 
-- Turn on **Enabled**. Base URL and API key default to the transcription ones; a separate endpoint, key and default model can be set.
-- Each transformation has a system prompt, a user message (`{{transcript}}` marks where the transcript goes; empty sends the transcript alone), an optional model and an optional shortcut.
+- Turn on **Enabled** and choose a provider. For **OpenAI-compatible API**, Base URL and API key default to the transcription ones; a separate endpoint, key and default model can be set.
+- Each transformation has a system prompt, a user message (`{{transcript}}` marks where the transcript goes; empty sends the transcript alone), an optional model for each provider and an optional shortcut.
 - A transformation's shortcut dictates and applies it. The regular shortcut applies the transformation checked in the menu bar menu; with **Use once** checked, the menu goes back to None after one dictation.
 - If the transformation fails, nothing is pasted; the raw transcript is in History.
 
+For **Claude Code (subscription)**:
+
+1. Install a current [Claude Code](https://code.claude.com/docs/en/setup) version supporting `--safe-mode`, then run `claude auth login` in Terminal and sign in with your Claude subscription.
+2. Choose **Claude Code (subscription)** in Transformations. The default model is `sonnet`; you can change it or override it on individual transformations. API and Claude models are saved separately.
+3. Leave **Claude executable** empty to auto-detect a standard installation, or enter the absolute path to the executable (for example, the output of `command -v claude`).
+4. Click **Test connection**, then **Save**. The test uses the current form values without saving and sends a small prompt that counts toward your plan usage.
+
+Each transformation runs a fresh `claude -p` process with the user message on stdin, tools and customizations disabled, an isolated temporary working directory, and session persistence disabled. Calls time out after 60 seconds, including the subscription authentication check. Yap reuses Claude Code's login; it does not store Claude credentials. API authentication and provider environment overrides are excluded from the child process, and non-subscription logins are rejected. Managed Claude Code policies still apply.
+
+Subscription usage limits and any extra usage enabled on your Claude account apply. Yap never automatically falls back to API billing. History records the provider and time; subscription transformations have unknown USD cost, rather than counting CLI cost estimates as billed charges. Transcription still requires its existing API key.
+
 ### Dictated instructions
 
-Assign a **Dictated instruction shortcut** in Transformations and turn **Enabled** on. This shortcut uses the same connection, API key and default model as transformations, plus the existing dictation hold/toggle mode, microphone and recording limit.
+Assign a **Dictated instruction shortcut** in Transformations and turn **Enabled** on. This shortcut uses the selected transformation provider and that provider's default model, plus the existing dictation hold/toggle mode, microphone and recording limit.
 
-Select text in an editable input, activate the shortcut, and say an instruction such as “translate to Korean.” yap captures the selection when recording starts, transcribes your instruction, sends both to the transformation endpoint, and pastes the result over the selection. Without selected text, the spoken instruction runs alone—for example, “write a short birthday greeting.”
+Select text in an editable input, activate the shortcut, and say an instruction such as “translate to Korean.” yap captures the selection when recording starts, transcribes your instruction, sends both to the selected transformation provider, and pastes the result over the selection. Without selected text, the spoken instruction runs alone—for example, “write a short birthday greeting.”
 
 Keep focus and any intended selection in the target input until processing finishes: the result is pasted into whichever input is active at that time. Selection capture first uses macOS Accessibility. If an input does not expose selected text (as can happen in Slack), yap sends Copy, waits for fresh clipboard content, and restores the previous clipboard formats. Unchanged clipboard contents are never used as context. An Accessibility or capture error stops the action rather than sending an instruction with missing context.
 
 The instruction shortcut leaves the menu bar's transformation pick and **Use once** unchanged. History identifies these entries as **Dictated instruction**; Details shows the spoken instruction and any selected text. If the model fails or returns no text, nothing is pasted and the instruction and context remain in History.
 
-With transformations on, transcripts are also sent to the transformation endpoint. Dictated instructions also send any captured selected text.
+With transformations on, transcripts are also sent to the selected transformation provider. Dictated instructions also send any captured selected text.
 
 Data, including the API keys in plain text, is stored in `~/Library/Application Support/com.mklinovsky.yap/yap.db`.
 

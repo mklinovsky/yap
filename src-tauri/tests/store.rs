@@ -403,6 +403,7 @@ fn transformation(id: &str, name: &str) -> Transformation {
         system_prompt: String::new(),
         user_template: String::new(),
         model: None,
+        claude_model: None,
         shortcut: None,
     }
 }
@@ -420,6 +421,7 @@ fn fresh_store_has_transformations_disabled() {
             default_model: "gpt-6-luna".into(),
             instruction_shortcut: None,
             items: vec![],
+            ..Transformations::default()
         }
     );
 }
@@ -441,6 +443,7 @@ fn saved_transformations_survive_reopening_the_database() {
             shortcut: Some("Ctrl+Alt+S".into()),
             ..transformation("t1", "Summary")
         }],
+        ..Transformations::default()
     };
 
     Store::open(&path)
@@ -865,4 +868,112 @@ fn instruction_history_survives_reopening_and_old_entries_have_no_context() {
     assert_eq!(rows[1].instruction_prompt, None);
     assert_eq!(rows[1].selected_text, None);
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn legacy_transformations_default_to_api_and_history_migrates_provider() {
+    use yap_lib::store::TransformProvider;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("legacy.db");
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    connection.execute_batch(r#"
+        CREATE TABLE transformations (id INTEGER PRIMARY KEY, json TEXT NOT NULL);
+        INSERT INTO transformations VALUES (1, '{"enabled":true,"defaultModel":"custom-api-model","items":[{"id":"t1","name":"Fix grammar","model":"gpt-5"}]}');
+        CREATE TABLE history (id INTEGER PRIMARY KEY, text TEXT NOT NULL, created_at INTEGER NOT NULL);
+        INSERT INTO history VALUES (1, 'old transcript', 1234);
+    "#).unwrap();
+    let store = Store::open(&path).unwrap();
+    let settings = store.transformations().unwrap();
+    assert_eq!(settings.provider, TransformProvider::Api);
+    assert_eq!(settings.default_model, "custom-api-model");
+    assert_eq!(settings.claude_default_model, "sonnet");
+    assert_eq!(settings.items[0].claude_model, None);
+    assert_eq!(store.history().unwrap()[0].transform_provider, None);
+    store
+        .add_history(&NewHistoryEntry {
+            text: "new transcript".into(),
+            transform_provider: Some("claude".into()),
+            ..NewHistoryEntry::default()
+        })
+        .unwrap();
+    assert_eq!(
+        store.history().unwrap()[0].transform_provider.as_deref(),
+        Some("claude")
+    );
+}
+
+#[test]
+fn claude_configuration_and_independent_models_survive_reopening() {
+    use yap_lib::store::TransformProvider;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("claude.db");
+    let settings = Transformations {
+        provider: TransformProvider::Claude,
+        claude_executable: Some("/custom/claude".into()),
+        claude_default_model: "sonnet".into(),
+        items: vec![Transformation {
+            model: Some("gpt-5".into()),
+            claude_model: Some("opus".into()),
+            ..transformation("t1", "Translate")
+        }],
+        ..Transformations::default()
+    };
+    Store::open(&path)
+        .unwrap()
+        .save_transformations(&settings)
+        .unwrap();
+    assert_eq!(
+        Store::open(&path).unwrap().transformations().unwrap(),
+        settings
+    );
+}
+
+#[test]
+fn history_migrates_from_either_feature_and_round_trips_context_and_provider_together() {
+    for instruction_version in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("history.db");
+        let (columns, values) = if instruction_version {
+            (
+                "instruction_prompt TEXT, selected_text TEXT",
+                "'old instruction', 'old selection'",
+            )
+        } else {
+            ("transform_provider TEXT", "'claude'")
+        };
+        rusqlite::Connection::open(&path).unwrap().execute_batch(&format!(
+            "CREATE TABLE history (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, created_at INTEGER NOT NULL, {columns}); INSERT INTO history VALUES (1, 'old', 1, {values});"
+        )).unwrap();
+        let store = Store::open(&path).unwrap();
+        let old = store.history().unwrap().remove(0);
+        assert_eq!(
+            old.instruction_prompt.as_deref(),
+            instruction_version.then_some("old instruction")
+        );
+        assert_eq!(
+            old.selected_text.as_deref(),
+            instruction_version.then_some("old selection")
+        );
+        assert_eq!(
+            old.transform_provider.as_deref(),
+            (!instruction_version).then_some("claude")
+        );
+        store
+            .add_history(&NewHistoryEntry {
+                text: "translated".into(),
+                instruction_prompt: Some("translate to Korean".into()),
+                selected_text: Some("source text".into()),
+                transform_provider: Some("claude".into()),
+                ..NewHistoryEntry::default()
+            })
+            .unwrap();
+        drop(store);
+        let entry = Store::open(&path).unwrap().history().unwrap().remove(0);
+        assert_eq!(
+            entry.instruction_prompt.as_deref(),
+            Some("translate to Korean")
+        );
+        assert_eq!(entry.selected_text.as_deref(), Some("source text"));
+        assert_eq!(entry.transform_provider.as_deref(), Some("claude"));
+    }
 }

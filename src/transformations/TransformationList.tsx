@@ -1,12 +1,14 @@
-import type { Transformation } from "../api";
+import type { Transformation, TransformProvider } from "../api";
 import { formatShortcut } from "../components/ShortcutRecorder";
 
 export function TransformationList({
   items,
+  provider,
   onEdit,
   onAdd,
 }: {
   items: Transformation[];
+  provider: TransformProvider;
   onEdit: (id: string) => void;
   onAdd: () => void;
 }) {
@@ -23,7 +25,7 @@ export function TransformationList({
             onClick={() => onEdit(item.id)}
           >
             <span className="list-name">{item.name}</span>
-            <span className="list-model">{item.model ?? "default model"}</span>
+            <span className="list-model">{(provider === "claude" ? item.claudeModel : item.model) ?? "default model"}</span>
             <span className={item.shortcut ? "keycap" : "keycap none"}>
               {item.shortcut ? formatShortcut(item.shortcut) : "No shortcut"}
             </span>

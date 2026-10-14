@@ -8,7 +8,9 @@ use yap_lib::dictation::{
 use yap_lib::http::ApiError;
 use yap_lib::store::{Mode, Settings, Store, Transformation, Transformations, TrayState};
 use yap_lib::transcriber::{TranscribeRequest, Transcriber, Transcription};
-use yap_lib::transformer::{TransformRequest, Transformed, Transformer};
+use yap_lib::transformer::{
+    TransformConnection, TransformError, TransformRequest, Transformed, Transformer,
+};
 
 #[derive(Default)]
 struct FakeSelection {
@@ -89,17 +91,21 @@ struct SentTransform {
 }
 
 struct FakeTransformer {
-    reply: Mutex<Result<Transformed, ApiError>>,
+    reply: Mutex<Result<Transformed, TransformError>>,
     sent: Mutex<Vec<SentTransform>>,
     clock: Arc<FakeClock>,
     takes: Mutex<Duration>,
 }
 
 impl Transformer for FakeTransformer {
-    fn transform(&self, request: TransformRequest) -> Result<Transformed, ApiError> {
+    fn transform(&self, request: TransformRequest) -> Result<Transformed, TransformError> {
+        let (base_url, api_key) = match request.connection {
+            TransformConnection::Api { base_url, api_key } => (base_url, api_key),
+            TransformConnection::Claude { .. } => ("claude".into(), String::new()),
+        };
         self.sent.lock().unwrap().push(SentTransform {
-            base_url: request.base_url,
-            api_key: request.api_key,
+            base_url,
+            api_key,
             model: request.model,
             system_prompt: request.system_prompt,
             user_message: request.user_message,
@@ -326,6 +332,7 @@ fn transformations() -> Transformations {
                 system_prompt: "Fix grammar.".into(),
                 user_template: "Text: {{transcript}}".into(),
                 model: None,
+                claude_model: None,
                 shortcut: None,
             },
             Transformation {
@@ -334,6 +341,7 @@ fn transformations() -> Transformations {
                 system_prompt: "Translate to English.".into(),
                 user_template: String::new(),
                 model: Some("gpt-5".into()),
+                claude_model: None,
                 shortcut: Some("Ctrl+Alt+E".into()),
             },
         ],
@@ -928,7 +936,8 @@ fn failed_transformation_pastes_nothing_and_keeps_raw_text_in_history() {
     *h.transformer.reply.lock().unwrap() = Err(ApiError::Http {
         status: 500,
         message: "boom".into(),
-    });
+    }
+    .into());
     h.dictation.select(Some("t1".into()));
 
     h.dictate(TrayPick);
@@ -1065,7 +1074,7 @@ fn blank_transcript_keeps_the_pick() {
 #[test]
 fn failed_transformation_still_uses_up_the_pick() {
     let h = Harness::with_fix_grammar_and_translate();
-    *h.transformer.reply.lock().unwrap() = Err(ApiError::Network("offline".into()));
+    *h.transformer.reply.lock().unwrap() = Err(ApiError::Network("offline".into()).into());
     h.dictation.select(Some("t1".into()));
 
     h.dictate(TrayPick);
@@ -1222,7 +1231,7 @@ fn instruction_uses_the_shared_connection_and_default_model() {
 #[test]
 fn failed_or_blank_instruction_response_keeps_context_and_pastes_nothing() {
     for reply in [
-        Err(ApiError::InvalidResponse("broken reply".into())),
+        Err(ApiError::InvalidResponse("broken reply".into()).into()),
         Ok(Transformed {
             text: "  ".into(),
             cost_in_usd: Some(0.001),
@@ -1307,4 +1316,125 @@ fn toggled_instruction_autostops_and_next_dictation_has_no_context() {
     let entry = h.store.history().unwrap().remove(0);
     assert_eq!(entry.selected_text, None);
     assert_eq!(entry.instruction_prompt, None);
+}
+
+#[test]
+fn claude_provider_needs_no_transformation_key_and_keeps_provider_in_history() {
+    use yap_lib::store::TransformProvider;
+    let h = Harness::with_fix_grammar_and_translate();
+    let mut settings = h.store.transformations().unwrap();
+    settings.provider = TransformProvider::Claude;
+    settings.reuse_api_key = false;
+    settings.claude_default_model = "sonnet".into();
+    h.store.save_transformations(&settings).unwrap();
+    h.dictation.select(Some("t1".into()));
+    h.dictate(TrayPick);
+    assert_eq!(h.pasted(), ["Hello, world."]);
+    let sent = h.transformer.sent.lock().unwrap();
+    assert_eq!(sent[0].base_url, "claude");
+    assert_eq!(sent[0].model, "sonnet");
+    assert!(sent[0].api_key.is_empty());
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!(entry.transform_provider.as_deref(), Some("claude"));
+    assert_eq!(entry.raw_text.as_deref(), Some("hello world"));
+    assert_eq!(entry.transform_cost_in_usd, None);
+}
+
+#[test]
+fn claude_failure_keeps_raw_transcript_and_never_falls_back_to_api() {
+    use yap_lib::store::TransformProvider;
+    let h = Harness::with_fix_grammar_and_translate();
+    let mut settings = h.store.transformations().unwrap();
+    settings.provider = TransformProvider::Claude;
+    settings.items[1].claude_model = Some("opus".into());
+    h.store.save_transformations(&settings).unwrap();
+    *h.transformer.reply.lock().unwrap() = Err(TransformError::Cli("Usage limit reached".into()));
+    h.dictate(Apply::Transformation("t2".into()));
+    assert!(h.pasted().is_empty());
+    let sent = h.transformer.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].model, "opus");
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!(entry.text, "hello world");
+    assert_eq!(entry.transform_provider.as_deref(), Some("claude"));
+    assert!(entry
+        .transform_error
+        .unwrap()
+        .contains("Usage limit reached"));
+}
+
+#[test]
+fn claude_dictated_instructions_use_provider_default_and_preserve_context_and_tray_pick() {
+    use yap_lib::store::TransformProvider;
+    for selection in [None, Some("Hello {{transcript}} \"friend\"")] {
+        let h = Harness::with_fix_grammar_and_translate();
+        let mut config = transformations();
+        config.provider = TransformProvider::Claude;
+        config.reuse_api_key = false;
+        config.default_model = "api-only-model".into();
+        config.claude_default_model = "opus".into();
+        h.store.save_transformations(&config).unwrap();
+        *h.selection.text.lock().unwrap() = selection.map(String::from);
+        *h.transcriber.reply.lock().unwrap() = Ok(transcript("translate to Korean"));
+        *h.transformer.takes.lock().unwrap() = Duration::from_millis(1230);
+        h.dictation.select(Some("t1".into()));
+        let tray = h.dictation.tray_state();
+
+        h.dictate(Apply::Instruction);
+
+        assert_eq!(h.pasted(), ["Hello, world."]);
+        assert_eq!(h.dictation.tray_state(), tray);
+        let sent = h.transformer.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].base_url, "claude");
+        assert!(sent[0].api_key.is_empty());
+        assert_eq!(sent[0].model, "opus");
+        let mut expected = serde_json::json!({"instruction": "translate to Korean"});
+        if let Some(selection) = selection {
+            expected["selectedText"] = selection.into();
+        }
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&sent[0].user_message).unwrap(),
+            expected
+        );
+        let entry = h.store.history().unwrap().remove(0);
+        assert_eq!(
+            entry.instruction_prompt.as_deref(),
+            Some("translate to Korean")
+        );
+        assert_eq!(entry.selected_text.as_deref(), selection);
+        assert_eq!(entry.raw_text.as_deref(), Some("translate to Korean"));
+        assert_eq!(entry.transform_provider.as_deref(), Some("claude"));
+        assert_eq!(entry.transform_time_in_seconds, Some(1.23));
+        assert_eq!(entry.transform_cost_in_usd, None);
+    }
+}
+
+#[test]
+fn failed_claude_instruction_keeps_context_provider_and_tray_pick_without_pasting() {
+    use yap_lib::store::TransformProvider;
+    let h = Harness::with_fix_grammar_and_translate();
+    let mut config = transformations();
+    config.provider = TransformProvider::Claude;
+    config.reuse_api_key = false;
+    h.store.save_transformations(&config).unwrap();
+    *h.selection.text.lock().unwrap() = Some("source text".into());
+    *h.transformer.reply.lock().unwrap() = Err(TransformError::Cli("Usage limit reached".into()));
+    h.dictation.select(Some("t1".into()));
+    let tray = h.dictation.tray_state();
+
+    h.dictate(Apply::Instruction);
+
+    assert!(h.pasted().is_empty());
+    assert_eq!(h.transformed(), 1);
+    assert_eq!(h.dictation.tray_state(), tray);
+    let entry = h.store.history().unwrap().remove(0);
+    assert_eq!(entry.text, "hello world");
+    assert_eq!(entry.instruction_prompt.as_deref(), Some("hello world"));
+    assert_eq!(entry.selected_text.as_deref(), Some("source text"));
+    assert_eq!(entry.transform_provider.as_deref(), Some("claude"));
+    assert!(entry
+        .transform_error
+        .unwrap()
+        .contains("Usage limit reached"));
 }

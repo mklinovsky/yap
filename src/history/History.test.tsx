@@ -74,6 +74,7 @@ const plain = {
   transformError: null,
   transformCostInUsd: null,
   transformTimeInSeconds: null,
+  transformProvider: null,
 };
 
 const entries: HistoryEntry[] = [
